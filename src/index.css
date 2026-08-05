@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    @apply text-slate-800;
+  }
+}
