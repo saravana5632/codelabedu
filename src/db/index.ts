@@ -1,9 +1,10 @@
+import "dotenv/config";
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { PgSelectBase, PgInsertBase, PgUpdateBase, PgDeleteBase } from 'drizzle-orm/pg-core';
 import { count } from 'drizzle-orm';
 import * as schema from './schema.ts';
-
+console.log("DATABASE_URL:", process.env.DATABASE_URL?.substring(0, 35));
 // Polyfill .all(), .get(), and .run() for PostgreSQL Drizzle query promises
 [PgSelectBase, PgInsertBase, PgUpdateBase, PgDeleteBase].forEach((cls) => {
   if (cls && cls.prototype) {
