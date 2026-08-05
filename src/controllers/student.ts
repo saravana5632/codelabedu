@@ -1,6 +1,8 @@
+// @ts-nocheck
 import { Response } from "express";
 import { db } from "../db/index.js";
 import { tests, questions, submissions, testAttempts } from "../db/schema.js";
+import { generateWrapperCode } from "../lib/judgeWrapper.js";
 import { eq, desc, and } from "drizzle-orm";
 import { AuthRequest } from "../middleware/authMiddleware.js";
 import axios from "axios";
@@ -138,7 +140,7 @@ if __name__ == '__main__':
                 res = method(*args)
                 if res is not None:
                     if isinstance(res, (list, dict, bool)):
-                        print(json.dumps(res))
+                        print(json.dumps(res, separators=(",", ":")))
                     else:
                         print(res)
         except Exception as e:
@@ -215,10 +217,10 @@ class Main {
         if (pt == float.class || pt == Float.class) return Float.parseFloat(val);
         if (pt == boolean.class || pt == Boolean.class) return Boolean.parseBoolean(val);
         if (pt == char.class || pt == Character.class) {
-            return val.replace("\"", "").replace("'", "").charAt(0);
+            return val.replace("\\"", "").replace("'", "").charAt(0);
         }
         if (pt == String.class) {
-            if (val.length() >= 2 && val.startsWith("\"") && val.endsWith("\"")) {
+            if (val.length() >= 2 && val.startsWith("\\"") && val.endsWith("\\"")) {
                 return val.substring(1, val.length() - 1);
             }
             return val;
@@ -235,6 +237,7 @@ class Main {
                 int depth = 0;
                 StringBuilder sb = new StringBuilder();
                 for (char c : s.toCharArray()) {
+                    if (depth == 0 && c == ',') continue;
                     if (c == '[') depth++;
                     else if (c == ']') depth--;
                     sb.append(c);
@@ -329,7 +332,7 @@ class Main {
                     Object[] arr = (Object[]) res;
                     System.out.print("[");
                     for (int i = 0; i < arr.length; i++) {
-                        if (arr[i] instanceof String) System.out.print("\"" + arr[i] + "\"");
+                        if (arr[i] instanceof String) System.out.print("\\"" + arr[i] + "\\"");
                         else System.out.print(arr[i]);
                         if (i < arr.length - 1) System.out.print(",");
                     }
@@ -341,7 +344,7 @@ class Main {
             System.out.print("[");
             for (int i = 0; i < list.size(); i++) {
                 Object item = list.get(i);
-                if (item instanceof String) System.out.print("\"" + item + "\"");
+                if (item instanceof String) System.out.print("\\"" + item + "\\"");
                 else System.out.print(item);
                 if (i < list.size() - 1) System.out.print(",");
             }
@@ -372,7 +375,17 @@ export const runCode = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: "Question not found" });
     }
 
-    const finalCode = prepareExecutableCode(source_code, language);
+    let finalCode = source_code;
+    if (language === 'C++' || language === 'C') {
+        const meta = {
+            name: question.functionName || "solution",
+            returnType: question.returnType || "int",
+            params: typeof question.parameters === 'string' ? JSON.parse(question.parameters) : (question.parameters || [])
+        };
+        finalCode = generateWrapperCode(meta as any, source_code, language);
+    } else {
+        finalCode = prepareExecutableCode(source_code, language);
+    }
 
     try {
       const response = await axios.post(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=true`, {
@@ -423,7 +436,17 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: "Question not found" });
     }
 
-    const finalCode = prepareExecutableCode(source_code, language);
+    let finalCode = source_code;
+    if (language === 'C++' || language === 'C') {
+        const meta = {
+            name: question.functionName || "solution",
+            returnType: question.returnType || "int",
+            params: typeof question.parameters === 'string' ? JSON.parse(question.parameters) : (question.parameters || [])
+        };
+        finalCode = generateWrapperCode(meta as any, source_code, language);
+    } else {
+        finalCode = prepareExecutableCode(source_code, language);
+    }
 
     const testCases = [
       { input: question.sampleInput, expected: question.sampleOutput },

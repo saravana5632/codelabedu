@@ -203,6 +203,7 @@ const generatePythonStarter = (meta: FunctionMeta): string => {
 const generatePythonWrapper = (meta: FunctionMeta, userCode: string): string => {
   return `import sys
 import json
+from typing import *
 
 ${userCode}
 

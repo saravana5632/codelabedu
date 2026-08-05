@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import api from '../../lib/api.ts';
+import api from '../../lib/api';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, LineChart, Line, ResponsiveContainer } from 'recharts';
 import { Download, Users, CheckCircle, XCircle, Clock, Award, AlertTriangle, FileText, DownloadCloud } from 'lucide-react';
 import * as XLSX from 'xlsx';

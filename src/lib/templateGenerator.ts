@@ -39,6 +39,9 @@ const typeMap: Record<string, Record<string, string>> = {
   'int[]': {
     'Java': 'int[]', 'Python': 'List[int]', 'C++': 'vector<int>', 'C': 'int*', 'JavaScript': 'number[]', 'TypeScript': 'number[]'
   },
+  'int[][]': {
+    'Java': 'int[][]', 'Python': 'List[List[int]]', 'C++': 'vector<vector<int>>', 'C': 'int**', 'JavaScript': 'number[][]', 'TypeScript': 'number[][]'
+  },
   'String[]': {
     'Java': 'String[]', 'Python': 'List[str]', 'C++': 'vector<string>', 'C': 'char**', 'JavaScript': 'string[]', 'TypeScript': 'string[]'
   }

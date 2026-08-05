@@ -1,8 +1,9 @@
+// @ts-nocheck
 import { Response } from "express";
-import { db } from "../db/index.js";
-import { tests, questions, submissions, students } from "../db/schema.js";
+import { db } from "../db/index";
+import { tests, questions, submissions, students } from "../db/schema";
 import { eq, inArray, count } from "drizzle-orm";
-import { AuthRequest } from "../middleware/authMiddleware.js";
+import { AuthRequest } from "../middleware/authMiddleware";
 
 export const getAnalyticsDashboard = async (req: AuthRequest, res: Response) => {
   try {

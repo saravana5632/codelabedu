@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import api from "../lib/api.ts";
@@ -29,6 +29,7 @@ export default function CodingPage() {
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [warningLevel, setWarningLevel] = useState<number>(0);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const isFullScreenRef = useRef(false);
   const [multiDeviceAlert, setMultiDeviceAlert] = useState(false);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -114,9 +115,10 @@ export default function CodingPage() {
     const handleFullScreenChange = () => {
       const isFull = !!getFullScreenElement();
       setIsFullScreen(isFull);
-      if (!isFull) {
+      if (!isFull && isFullScreenRef.current) {
         logActivity("fullscreen_exit", 0, "Exited full-screen test mode");
       }
+      isFullScreenRef.current = isFull;
     };
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -212,16 +214,22 @@ export default function CodingPage() {
   const requestFullScreenMode = () => {
     const el = document.documentElement as any;
     if (el.requestFullscreen) {
-      el.requestFullscreen().then(() => setIsFullScreen(true)).catch(() => {});
+      el.requestFullscreen().then(() => {
+        setIsFullScreen(true);
+        isFullScreenRef.current = true;
+      }).catch(() => {});
     } else if (el.webkitRequestFullscreen) {
       el.webkitRequestFullscreen();
       setIsFullScreen(true);
+      isFullScreenRef.current = true;
     } else if (el.mozRequestFullScreen) {
       el.mozRequestFullScreen();
       setIsFullScreen(true);
+      isFullScreenRef.current = true;
     } else if (el.msRequestFullscreen) {
       el.msRequestFullscreen();
       setIsFullScreen(true);
+      isFullScreenRef.current = true;
     }
   };
 
@@ -312,7 +320,8 @@ export default function CodingPage() {
     if (activeQuestionId) {
       setCodes(prev => ({...prev, [activeQuestionId]: code}));
       setLanguages(prev => ({...prev, [activeQuestionId]: language}));
-      if (questionStatuses[activeQuestionId] === "Not Attempted" && code !== generateTemplate(language, question)) {
+      const isModified = (c: string, t: string) => c.replace(/\s+/g, '') !== t.replace(/\s+/g, '');
+      if (questionStatuses[activeQuestionId] === "Not Attempted" && isModified(code, generateTemplate(language, question))) {
          setQuestionStatuses(prev => ({...prev, [activeQuestionId]: "Attempted"}));
       }
     }
@@ -358,14 +367,20 @@ export default function CodingPage() {
     const template = generateTemplate(newLang, question);
     const oldTemplate = generateTemplate(language, question);
     
-    if (code.trim() !== "" && code.trim() !== oldTemplate.trim()) {
+    const isModified = (c: string, t: string) => c.replace(/\s+/g, '') !== t.replace(/\s+/g, '');
+
+    if (code.trim() !== "" && isModified(code, oldTemplate)) {
       if (window.confirm("Changing language will replace your current code with the template. Continue?")) {
         setLanguage(newLang);
         setCode(template);
+        setLanguages(prev => ({...prev, [activeQuestionId]: newLang}));
+        setCodes(prev => ({...prev, [activeQuestionId]: template}));
       }
     } else {
       setLanguage(newLang);
       setCode(template);
+      setLanguages(prev => ({...prev, [activeQuestionId]: newLang}));
+      setCodes(prev => ({...prev, [activeQuestionId]: template}));
     }
   };
 

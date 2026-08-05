@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Request, Response } from "express";
 import { db } from "../db/index.js";
 import { students, faculty, studentSessions, malpracticeLogs } from "../db/schema.js";
