@@ -95,10 +95,16 @@ export const login = async (req: Request, res: Response) => {
     
     return res.status(400).json({ message: "Invalid login type" });
   } catch (error: any) {
-    console.error("Login error:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
+  console.error("========== LOGIN ERROR ==========");
+  console.error(error);
+  console.error(error.stack);
+  console.error("================================");
+
+  res.status(500).json({
+    message: error.message,
+    stack: error.stack,
+  });
+}
 
 export const getMe = async (req: AuthRequest, res: Response) => {
   try {
