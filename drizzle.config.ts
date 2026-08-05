@@ -10,12 +10,8 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   schemaFilter: ["public"],
-  dbCredentials: url ? { url } : {
-    host: process.env.SQL_HOST || "localhost",
-    user: process.env.SQL_ADMIN_USER || "postgres",
-    password: process.env.SQL_ADMIN_PASSWORD || "postgres",
-    database: process.env.SQL_DB_NAME || "postgres",
-    ssl: false,
+  dbCredentials: url && !url.includes('[YOUR-PASSWORD]') ? { url } : {
+    url: 'postgresql://postgres:postgres@localhost:5432/postgres'
   },
   verbose: true,
 });
