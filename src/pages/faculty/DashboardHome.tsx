@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../../lib/api.ts';
+import api from '../../lib/api.js';
 import { Users, FileText, CheckCircle, Clock, BookOpen, GraduationCap } from 'lucide-react';
 
 export default function DashboardHome() {

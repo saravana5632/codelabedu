@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../../lib/api.ts';
+import api from '../../lib/api.js';
 import { Plus, Play, Pause, Trash2, Copy, BarChart3, Edit, Search, Code, X } from 'lucide-react';
 
 export default function TestManagement() {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../../lib/api.ts';
+import api from '../../lib/api.js';
 import { Search, UserCircle, Users } from 'lucide-react';
 
 export default function StudentManagement() {
