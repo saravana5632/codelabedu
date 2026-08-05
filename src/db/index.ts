@@ -34,7 +34,7 @@ export const createPool = () => {
     if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('[YOUR-PASSWORD]')) {
        console.error("WARNING: DATABASE_URL is not set or contains placeholder password.");
     }
-    const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/postgres';
+    const connectionString = process.env.DATABASE_URL!;
     const isSupabase = connectionString && connectionString.includes('supabase');
     global._postgresPool = new Pool({
       connectionString: connectionString,
