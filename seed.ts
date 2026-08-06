@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { db } from "./src/db/index.js";
 import { students } from "./src/db/schema.js";
 import { eq } from "drizzle-orm";

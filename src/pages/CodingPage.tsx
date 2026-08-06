@@ -1,594 +1,100 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import api from "../lib/api.ts";
-import { Play, Send, RefreshCw, ChevronLeft, ShieldAlert, Eye, AlertTriangle, Maximize } from "lucide-react";
-import { generateTemplate } from "../lib/templateGenerator";
-
-
+import { Play, Send, RefreshCw, ChevronLeft } from "lucide-react";
 
 export default function CodingPage() {
-  const { testId } = useParams();
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [activeQuestionId, setActiveQuestionId] = useState<number>(0);
-  const [codes, setCodes] = useState<Record<number, string>>({});
-  const [languages, setLanguages] = useState<Record<number, string>>({});
-  const [questionStatuses, setQuestionStatuses] = useState<Record<number, string>>({});
-  const [testData, setTestData] = useState<any>(null);
-  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const { questionId } = useParams();
   const navigate = useNavigate();
   const [question, setQuestion] = useState<any>(null);
   const [language, setLanguage] = useState("Python");
   const [code, setCode] = useState("");
-  const [runResult, setRunResult] = useState<any>(null);
-  const [submitResult, setSubmitResult] = useState<any>(null);
+  const [customInput, setCustomInput] = useState("");
+  const [output, setOutput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [isFinishingAssessment, setIsFinishingAssessment] = useState(false);
-  const [showLanguageConfirm, setShowLanguageConfirm] = useState<{lang: string, template: string} | null>(null);
-
-  // Anti-Malpractice State
-  const [violationCount, setViolationCount] = useState(0);
-  const [warningMessage, setWarningMessage] = useState<string | null>(null);
-  const [warningLevel, setWarningLevel] = useState<number>(0);
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const isFullScreenRef = useRef(false);
-  const [multiDeviceAlert, setMultiDeviceAlert] = useState(false);
-
-  // Modal States
-  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [pendingLanguage, setPendingLanguage] = useState<string | null>(null);
-  const [alertMessage, setAlertMessage] = useState<string | null>(null);
-
+  
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const sessionToken = localStorage.getItem("sessionToken") || "";
 
-  // Helper to log malpractice activity
-  const logActivity = async (eventType: string, duration: number = 0, details: string = "") => {
+  useEffect(() => {
+    fetchQuestion();
+  }, [questionId]);
+
+  const fetchQuestion = async () => {
     try {
-      const tid = parseInt(testId || "0");
-      const res = await api.post("/activity/log", {
-        test_id: tid,
-        event_type: eventType,
-        duration,
-        details
-      });
-
-      if (res.data) {
-        setViolationCount(res.data.violationCount || (v => v + 1));
-        setWarningLevel(res.data.warningLevel || 1);
-        setWarningMessage(res.data.warningMessage || "Suspicious activity detected.");
-      }
-    } catch (err) {
-      console.error("Failed logging activity", err);
-    }
-  };
-
-  // Periodic Session Heartbeat
-  useEffect(() => {
-    const checkSessionActive = async () => {
-      try {
-        const tid = parseInt(testId || "0");
-        const res = await api.post("/session/check", {
-          session_token: sessionToken,
-          device_info: navigator.userAgent,
-          test_id: tid
-        });
-
-        if (res.data?.multiDeviceAlert) {
-          setMultiDeviceAlert(true);
-          setWarningMessage("🚨 Multiple active sessions detected on another device! Faculty has been alerted.");
-          setWarningLevel(3);
-        }
-      } catch (err) {
-        console.error("Session check failed", err);
-      }
-    };
-
-    checkSessionActive();
-    const interval = setInterval(checkSessionActive, 20000);
-    return () => clearInterval(interval);
-  }, [question, sessionToken]);
-
-  // Malpractice limit enforcement
-  useEffect(() => {
-    if (violationCount >= 10 && !isFinishingAssessment) {
-      setAlertMessage("You have exceeded the maximum malpractice limit. Your assessment has been automatically submitted.");
-      performSubmitAssessment(true);
-    }
-  }, [violationCount]);
-
-  // Tab Switch & Visibility & Focus Monitoring with Windows 7 / Legacy Browser Polyfills
-  useEffect(() => {
-    let hiddenTime: number | null = null;
-
-    const isPageHidden = () => {
-      return document.hidden || (document as any).webkitHidden || (document as any).mozHidden || (document as any).msHidden;
-    };
-
-    const getFullScreenElement = () => {
-      return document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement;
-    };
-
-    const handleVisibilityChange = () => {
-      if (isPageHidden()) {
-        hiddenTime = Date.now();
-      } else {
-        const returnTime = Date.now();
-        const durationSec = hiddenTime ? Math.round((returnTime - hiddenTime) / 1000) : 0;
-        hiddenTime = null;
-        logActivity("tab_switch", durationSec, `Tab/window hidden for ${durationSec} seconds`);
-      }
-    };
-
-    const handleBlur = () => {
-      logActivity("focus_lost", 0, "Browser lost focus");
-    };
-
-    const handleFullScreenChange = () => {
-      const isFull = !!getFullScreenElement();
-      setIsFullScreen(isFull);
-      if (!isFull && isFullScreenRef.current) {
-        logActivity("fullscreen_exit", 0, "Exited full-screen test mode");
-      }
-      isFullScreenRef.current = isFull;
-    };
-
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      logActivity("tab_close", 0, "Page refresh or tab close attempt");
-    };
-
-    // Standard + Vendor Prefixed Event Listeners for Win7 / Legacy Browsers
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    document.addEventListener("webkitvisibilitychange", handleVisibilityChange);
-    document.addEventListener("msvisibilitychange", handleVisibilityChange);
-
-    window.addEventListener("blur", handleBlur);
-
-    document.addEventListener("fullscreenchange", handleFullScreenChange);
-    document.addEventListener("webkitfullscreenchange", handleFullScreenChange);
-    document.addEventListener("mozfullscreenchange", handleFullScreenChange);
-    document.addEventListener("MSFullscreenChange", handleFullScreenChange);
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      document.removeEventListener("webkitvisibilitychange", handleVisibilityChange);
-      document.removeEventListener("msvisibilitychange", handleVisibilityChange);
-
-      window.removeEventListener("blur", handleBlur);
-
-      document.removeEventListener("fullscreenchange", handleFullScreenChange);
-      document.removeEventListener("webkitfullscreenchange", handleFullScreenChange);
-      document.removeEventListener("mozfullscreenchange", handleFullScreenChange);
-      document.removeEventListener("MSFullscreenChange", handleFullScreenChange);
-
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [question]);
-
-  // Copy, Paste, Cut, Drag, Drop Event Handlers (Support clipboardData and IE window.clipboardData)
-  useEffect(() => {
-    const handleCopy = (e: ClipboardEvent) => {
-      e.preventDefault();
-      logActivity("copy_attempt", 0, "Copied code from test environment");
-    };
-
-    const handleCut = (e: ClipboardEvent) => {
-      e.preventDefault();
-      logActivity("cut_attempt", 0, "Cut text in test environment");
-    };
-
-    const handlePaste = (e: any) => {
-      e.preventDefault();
-      const clipboardData = e.clipboardData || (window as any).clipboardData;
-      const pastedText = clipboardData ? clipboardData.getData("text") || "" : "";
-      if (pastedText.length > 100) {
-        logActivity("large_paste", 0, `Pasted large code block (${pastedText.length} characters)`);
-      } else {
-        logActivity("paste_attempt", 0, `Pasted text (${pastedText.length} characters)`);
-      }
-    };
-
-    const handleDrag = (e: DragEvent) => {
-      e.preventDefault();
-    };
-
-    const handleDrop = (e: DragEvent) => {
-      e.preventDefault();
-      logActivity("drop_attempt", 0, "Attempted to drop code");
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C' || e.key === 'v' || e.key === 'V' || e.key === 'x' || e.key === 'X')) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-
-    window.addEventListener("copy", handleCopy, { capture: true });
-    window.addEventListener("cut", handleCut, { capture: true });
-    window.addEventListener("paste", handlePaste, { capture: true });
-    window.addEventListener("dragstart", handleDrag, { capture: true });
-    window.addEventListener("drop", handleDrop, { capture: true });
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-
-    return () => {
-      window.removeEventListener("copy", handleCopy, { capture: true } as any);
-      window.removeEventListener("cut", handleCut, { capture: true } as any);
-      window.removeEventListener("paste", handlePaste, { capture: true } as any);
-      window.removeEventListener("dragstart", handleDrag, { capture: true } as any);
-      window.removeEventListener("drop", handleDrop, { capture: true } as any);
-      window.removeEventListener("keydown", handleKeyDown, { capture: true } as any);
-    };
-  }, [question]);
-
-  const requestFullScreenMode = () => {
-    const el = document.documentElement as any;
-    if (el.requestFullscreen) {
-      el.requestFullscreen().then(() => {
-        setIsFullScreen(true);
-        isFullScreenRef.current = true;
-      }).catch(() => {});
-    } else if (el.webkitRequestFullscreen) {
-      el.webkitRequestFullscreen();
-      setIsFullScreen(true);
-      isFullScreenRef.current = true;
-    } else if (el.mozRequestFullScreen) {
-      el.mozRequestFullScreen();
-      setIsFullScreen(true);
-      isFullScreenRef.current = true;
-    } else if (el.msRequestFullscreen) {
-      el.msRequestFullscreen();
-      setIsFullScreen(true);
-      isFullScreenRef.current = true;
-    }
-  };
-
-  useEffect(() => {
-    setViolationCount(0);
-    setWarningLevel(0);
-    setWarningMessage(null);
-    fetchTest();
-  }, [testId]);
-
-
-  const fetchTest = async () => {
-    try {
-      const res = await api.get(`/student/tests/${testId}`);
-      setTestData(res.data);
-      setQuestions(res.data.questions);
-      
-      const newCodes: Record<number, string> = {};
-      const newLanguages: Record<number, string> = {};
-      const newStatuses: Record<number, string> = {};
-      
-      res.data.questions.forEach((q: any) => {
-        newLanguages[q.id] = "Python"; // default
-        newCodes[q.id] = generateTemplate("Python", q);
-        newStatuses[q.id] = "Not Attempted";
-      });
-      
-      // Load previous submissions
-      if (res.data.submissions) {
-         res.data.submissions.forEach((sub: any) => {
-            newLanguages[sub.questionId] = sub.language;
-            newCodes[sub.questionId] = sub.sourceCode;
-            newStatuses[sub.questionId] = sub.status === "Accepted" ? "Accepted" : "Submitted";
-         });
-      }
-
-      setCodes(newCodes);
-      setLanguages(newLanguages);
-      setQuestionStatuses(newStatuses);
-      
-      if (res.data.attempt) {
-        const startedAt = new Date(res.data.attempt.startedAt).getTime();
-        const durationMs = res.data.duration * 60 * 1000;
-        const endsAt = startedAt + durationMs;
-        const now = new Date().getTime();
-        setTimeLeft(Math.max(0, Math.floor((endsAt - now) / 1000)));
-      }
-
-      if (res.data.questions.length > 0) {
-        setActiveQuestionId(res.data.questions[0].id);
-        setLanguage(newLanguages[res.data.questions[0].id]);
-        setCode(newCodes[res.data.questions[0].id]);
-        setQuestion(res.data.questions[0]);
-      }
+      const res = await api.get(`/student/questions/${questionId}`);
+      setQuestion(res.data);
+      // Set some boilerplate code based on language
     } catch (err) {
       console.error(err);
       navigate("/student");
     }
   };
 
-
-  useEffect(() => {
-    if (timeLeft <= 0) return;
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          submitAssessment(true); // auto submit
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [timeLeft]);
-
-
-  const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const handleSwitchQuestion = (qid: number) => {
-    // save current code
-    if (activeQuestionId) {
-      setCodes(prev => ({...prev, [activeQuestionId]: code}));
-      setLanguages(prev => ({...prev, [activeQuestionId]: language}));
-      const isModified = (c: string, t: string) => c.replace(/\s+/g, '') !== t.replace(/\s+/g, '');
-      if (questionStatuses[activeQuestionId] === "Not Attempted" && isModified(code, generateTemplate(language, question))) {
-         setQuestionStatuses(prev => ({...prev, [activeQuestionId]: "Attempted"}));
-      }
-    }
-    const q = questions.find(x => x.id === qid);
-    setActiveQuestionId(qid);
-    setQuestion(q);
-    setCode(codes[qid] || generateTemplate(languages[qid] || "Python", q));
-    setLanguage(languages[qid] || "Python");
-    setRunResult(null);
-  };
-  
-  const exitFullscreenSafely = async () => {
-    const doc = document as any;
-    if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
-      try {
-        if (doc.exitFullscreen) {
-          await doc.exitFullscreen();
-        } else if (doc.webkitExitFullscreen) {
-          doc.webkitExitFullscreen();
-        } else if (doc.mozCancelFullScreen) {
-          doc.mozCancelFullScreen();
-        } else if (doc.msExitFullscreen) {
-          doc.msExitFullscreen();
-        }
-        // Wait a tiny bit for UI to settle
-        await new Promise(res => setTimeout(res, 100));
-      } catch (err) {
-        console.error("Failed to exit fullscreen:", err);
-      }
-    }
-  };
-
-  const performSubmitAssessment = async (auto: boolean) => {
-    if (isFinishingAssessment) return;
-    setIsFinishingAssessment(true);
-    
-    // Evaluate all questions
-    try {
-      for (const q of questions) {
-        const qCode = q.id === activeQuestionId ? code : codes[q.id];
-        const qLang = q.id === activeQuestionId ? language : languages[q.id];
-        
-        // If code has been modified from template, submit it
-        if (qCode && qCode.trim() !== "" && qCode !== generateTemplate(qLang, q)) {
-          await api.post("/student/submit", {
-            question_id: q.id,
-            source_code: qCode,
-            language: qLang
-          }).catch(e => console.error("Failed to auto-submit", q.id, e));
-        }
-      }
-    } catch (e) {
-      console.error("Failed during auto-evaluation", e);
-    }
-
-    try {
-      await api.post(`/student/tests/${testId}/finish`);
-      setShowSubmitConfirm(false);
-      await exitFullscreenSafely();
-      
-      if (auto) {
-        if (violationCount >= 10) {
-          setAlertMessage("You have exceeded the maximum malpractice limit. Your assessment has been automatically submitted.");
-        } else {
-          setAlertMessage("Time is up! Assessment submitted automatically.");
-        }
-      } else {
-        setAlertMessage("Assessment submitted successfully.");
-      }
-      setTimeout(() => navigate("/student"), 1500); // Navigate after a short delay
-    } catch (err: any) {
-      console.error("Submit error:", err);
-      setAlertMessage("Submission failed. Please try again.");
-      setIsFinishingAssessment(false);
-    }
-  };
-
-  const submitAssessment = (isAutoSubmit: boolean | React.MouseEvent = false) => {
-    if (isFinishingAssessment) return;
-    const auto = isAutoSubmit === true;
-    if (!auto) {
-      setShowSubmitConfirm(true);
-    } else {
-      performSubmitAssessment(true);
-    }
-  };
-
-  const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newLang = e.target.value;
-    const template = generateTemplate(newLang, question);
-    const oldTemplate = generateTemplate(language, question);
-    
-    const isModified = (c: string, t: string) => c.replace(/\s+/g, '') !== t.replace(/\s+/g, '');
-
-    if (code.trim() !== "" && isModified(code, oldTemplate)) {
-      setShowLanguageConfirm({ lang: newLang, template });
-    } else {
-      setLanguage(newLang);
-      setCode(template);
-      setLanguages(prev => ({...prev, [activeQuestionId]: newLang}));
-      setCodes(prev => ({...prev, [activeQuestionId]: template}));
-    }
-  };
-
   const handleRun = async () => {
     setIsRunning(true);
-    setRunResult(null);
     try {
       const res = await api.post("/student/run", {
-        question_id: activeQuestionId,
         source_code: code,
-        language
+        language,
+        input: customInput
       });
-      setRunResult(res.data);
+      setOutput(res.data.stdout || res.data.stderr || res.data.compile_output || "Execution completed.");
     } catch (err) {
-      setRunResult({ stderr: "Error connecting to compiler service." });
+      setOutput("Error connecting to compiler service.");
     }
     setIsRunning(false);
   };
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    setSubmitResult(null);
-    setRunResult(null);
     try {
-      const res = await api.post("/student/submit", {
-        question_id: activeQuestionId,
+      await api.post("/student/submit", {
+        question_id: parseInt(questionId || "0"),
         source_code: code,
-        language
+        language,
+        output: "Submitted successfully",
+        status: "Submitted"
       });
-      setSubmitResult(res.data);
-      setQuestionStatuses(prev => ({...prev, [activeQuestionId]: res.data.finalStatus === "Accepted" ? "Accepted" : "Submitted"}));
+      alert("Code submitted successfully!");
+      navigate("/student");
     } catch (err) {
-      setAlertMessage("Failed to submit code.");
+      alert("Failed to submit code.");
     }
     setIsSubmitting(false);
   };
 
-  if (!testData || !question) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (!question) return <div className="p-8 text-center text-gray-500">Loading...</div>;
 
   return (
-    <div className="h-screen flex flex-col bg-white text-slate-800 font-sans overflow-hidden relative">
-      {/* Fullscreen Overlay Enforcement */}
-      {!isFullScreen && (
-        <div className="fixed inset-0 bg-slate-900/95 z-[9999] flex flex-col items-center justify-center text-white p-6">
-          <ShieldAlert className="w-20 h-20 text-amber-500 mb-6 animate-pulse" />
-          <h2 className="text-3xl font-bold mb-4">Proctoring Mode Required</h2>
-          <p className="text-slate-300 mb-8 text-center max-w-lg text-lg">
-            This assessment requires strict full-screen mode to ensure a fair environment. 
-            Exiting full-screen, minimizing the window, or switching tabs will be recorded as malpractice.
-          </p>
-          <button 
-            onClick={requestFullScreenMode}
-            className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-900/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
-          >
-            <Maximize className="w-6 h-6" />
-            Enter Fullscreen to Continue
-          </button>
-        </div>
-      )}
-
+    <div className="h-screen flex flex-col bg-white text-slate-800 font-sans overflow-hidden">
       {/* Top Navbar */}
       <header className="h-14 border-b border-gray-200 px-6 flex items-center justify-between bg-white shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={async () => {
-            await exitFullscreenSafely();
-            navigate("/student");
-          }} className="text-gray-500 hover:text-gray-900 mr-2">
+          <button onClick={() => navigate("/student")} className="text-gray-500 hover:text-gray-900 mr-2">
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold">C</div>
-          <span className="font-semibold text-lg tracking-tight">CodeLab <span className="text-gray-400 font-normal ml-2 hidden md:inline-block">| {question.title}</span></span>
+          <span className="font-semibold text-lg tracking-tight">CodeLab <span className="text-gray-400 font-normal ml-2">| {question.title}</span></span>
         </div>
-
         <div className="flex items-center gap-6">
-          {/* Anti-Malpractice Monitor Badge - Top Right */}
-          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 px-4 py-1.5 rounded-full shadow-sm">
-            <Eye className="w-4 h-4 text-amber-600 animate-pulse" />
-            <span className="text-sm font-bold text-amber-800 flex items-center gap-2">
-              Malpractice Count:
-              <span className={`px-2 py-0.5 rounded-full font-bold text-white ${violationCount > 0 ? 'bg-red-600' : 'bg-emerald-500'}`}>
-                {violationCount}
-              </span>
-            </span>
-          </div>
-
-          <div className="hidden md:flex flex-col items-end">
+          <div className="flex flex-col items-end">
             <span className="text-xs text-gray-500 uppercase font-semibold">Student</span>
             <span className="text-sm font-medium">{user.name || "Test User"}</span>
+          </div>
+          <div className="h-10 w-[1px] bg-gray-200"></div>
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col items-end">
+              <span className="text-xs text-gray-500 uppercase font-semibold">Time Remaining</span>
+              <span className="text-sm font-mono font-bold text-red-600">--:--</span>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* Malpractice Warning Banner */}
-      {warningMessage && (
-        <div className={`px-6 py-2.5 flex items-center justify-between text-xs font-medium shrink-0 border-b ${
-          warningLevel >= 3 
-            ? 'bg-red-600 text-white border-red-700' 
-            : warningLevel === 2 
-            ? 'bg-amber-500 text-white border-amber-600' 
-            : 'bg-amber-100 text-amber-900 border-amber-200'
-        }`}>
-          <div className="flex items-center gap-2 font-semibold">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{warningMessage}</span>
-          </div>
-          <button 
-            onClick={() => setWarningMessage(null)}
-            className="text-xs underline opacity-80 hover:opacity-100 ml-4 font-semibold"
-          >
-            Acknowledge
-          </button>
-        </div>
-      )}
-
-
       {/* Main Split Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar: Questions Navigator */}
-        <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col shrink-0">
-          <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-            <h2 className="font-bold text-slate-800">Questions</h2>
-            <div className="text-sm font-mono bg-slate-100 px-2 py-1 rounded text-slate-700 font-semibold">
-              ⏱ {formatTime(timeLeft)}
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {questions.map((q, idx) => (
-              <button 
-                key={q.id}
-                onClick={() => handleSwitchQuestion(q.id)}
-                className={`w-full text-left p-3 rounded-lg border transition-all ${activeQuestionId === q.id ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-white border-slate-200 hover:border-blue-200 hover:bg-slate-50'}`}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-semibold text-slate-700 text-sm">Q{idx + 1}</span>
-                  {questionStatuses[q.id] === "Accepted" && <span className="w-2 h-2 rounded-full bg-emerald-500" title="Accepted"></span>}
-                  {questionStatuses[q.id] === "Submitted" && <span className="w-2 h-2 rounded-full bg-amber-500" title="Submitted"></span>}
-                  {questionStatuses[q.id] === "Attempted" && <span className="w-2 h-2 rounded-full bg-blue-500" title="Attempted"></span>}
-                  {questionStatuses[q.id] === "Not Attempted" && <span className="w-2 h-2 rounded-full bg-slate-300" title="Not Attempted"></span>}
-                </div>
-                <div className="text-xs text-slate-500 truncate">{q.title}</div>
-              </button>
-            ))}
-          </div>
-          <div className="p-4 border-t border-slate-200 bg-white">
-            <button onClick={submitAssessment} className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium shadow-sm transition-colors text-sm">
-              Submit Assessment
-            </button>
-          </div>
-        </div>
-        
         {/* Left Panel - Question Description */}
         <div className="w-[40%] border-r border-gray-200 flex flex-col bg-white overflow-hidden">
           <div className="p-6 overflow-y-auto">
@@ -630,22 +136,16 @@ export default function CodingPage() {
 
               {(question.sampleInput || question.sampleOutput) && (
                 <div className="bg-gray-50 border border-gray-100 rounded-lg p-4">
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Public Test Case</h3>
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Sample Case</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <span className="text-[10px] font-bold text-gray-500 uppercase">Input</span>
-                      <pre className="mt-1 bg-white border border-gray-200 rounded p-2 text-xs font-mono whitespace-pre-wrap">{question.sampleInput || "No input"}</pre>
+                      <pre className="mt-1 bg-white border border-gray-200 rounded p-2 text-xs font-mono whitespace-pre-wrap">{question.sampleInput || "No sample input"}</pre>
                     </div>
                     <div>
                       <span className="text-[10px] font-bold text-gray-500 uppercase">Output</span>
-                      <pre className="mt-1 bg-white border border-gray-200 rounded p-2 text-xs font-mono whitespace-pre-wrap">{question.sampleOutput || "No output"}</pre>
+                      <pre className="mt-1 bg-white border border-gray-200 rounded p-2 text-xs font-mono whitespace-pre-wrap">{question.sampleOutput || "No sample output"}</pre>
                     </div>
-                    {question.publicExplanation && (
-                      <div className="col-span-2 mt-2">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase">Explanation</span>
-                        <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{question.publicExplanation}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
@@ -662,7 +162,7 @@ export default function CodingPage() {
               <label className="text-[10px] font-bold text-gray-400 uppercase">Language</label>
               <select
                 value={language}
-                onChange={handleLanguageChange}
+                onChange={(e) => setLanguage(e.target.value)}
                 className="bg-white border border-gray-200 text-sm rounded px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="C">C</option>
@@ -674,7 +174,7 @@ export default function CodingPage() {
             </div>
             <div className="flex gap-2">
               <button 
-                onClick={() => setCode(generateTemplate(language, question))}
+                onClick={() => setCode("")}
                 className="text-xs text-gray-500 hover:text-gray-900 flex items-center gap-1 p-1.5 hover:bg-gray-100 rounded transition-colors"
               >
                 <RefreshCw className="w-4 h-4" /> Reset Code
@@ -686,21 +186,17 @@ export default function CodingPage() {
           <div className="flex-1 bg-white relative font-mono text-sm leading-relaxed overflow-hidden border-b border-gray-200">
             <Editor
               height="100%"
-              language={(language || 'python').toLowerCase()}
+              language={language.toLowerCase()}
               value={code}
               onChange={(value) => setCode(value || "")}
               theme="vs-light"
               options={{
                 minimap: { enabled: false },
                 fontSize: 14,
-                fontFamily: "Consolas, 'Courier New', 'Segoe UI', monospace",
                 lineHeight: 24,
                 padding: { top: 16 },
                 scrollBeyondLastLine: false,
                 roundedSelection: false,
-                fastScrollSensitivity: 5,
-                contextmenu: false,
-                dragAndDrop: false,
               }}
             />
           </div>
@@ -712,80 +208,18 @@ export default function CodingPage() {
             </div>
             <div className="flex-1 flex min-h-0">
               <div className="w-1/2 border-r border-gray-200 p-4 flex flex-col bg-white">
-                <label className="text-[10px] font-bold text-gray-400 uppercase mb-2">Public Test Case Input</label>
-                <div className="flex-1 w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm font-mono overflow-auto whitespace-pre-wrap text-slate-700">
-                  {question.sampleInput || "No input"}
-                </div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase mb-2">Custom Input</label>
+                <textarea 
+                  value={customInput}
+                  onChange={e => setCustomInput(e.target.value)}
+                  className="flex-1 w-full resize-none border border-gray-200 rounded p-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+                  placeholder="Enter inputs here..."
+                />
               </div>
               <div className="w-1/2 p-4 flex flex-col bg-gray-50">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase">Test Result</label>
-                  {runResult && (
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${runResult.passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {runResult.passed ? 'Passed' : 'Failed'}
-                    </span>
-                  )}
-                  {submitResult && (
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${submitResult.finalStatus === 'Accepted' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {submitResult.finalStatus}
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1 bg-white border border-gray-200 rounded p-4 text-sm font-mono overflow-auto whitespace-pre-wrap text-slate-700">
-                  {submitResult ? (
-                    <div className="flex flex-col gap-3">
-                      <div className={`text-lg font-bold ${submitResult.finalStatus === 'Accepted' ? 'text-green-600' : 'text-red-600'}`}>
-                        {submitResult.finalStatus}
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
-                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Passed</div>
-                          <div className="text-xl font-bold text-gray-800">{submitResult.passedCount} <span className="text-sm text-gray-400 font-normal">/ {submitResult.totalCount}</span></div>
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
-                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Score</div>
-                          <div className="text-xl font-bold text-gray-800">{submitResult.score} <span className="text-sm text-gray-400 font-normal">/ {submitResult.maxScore}</span></div>
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
-                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Execution Time</div>
-                          <div className="text-base font-bold text-gray-800">{(submitResult.time || 0).toFixed(3)}s</div>
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
-                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Memory</div>
-                          <div className="text-base font-bold text-gray-800">{submitResult.memory || 0} KB</div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : runResult ? (
-                    <>
-                      {runResult.compile_output && (
-                        <div className="mb-2 text-red-600">
-                          <span className="font-bold">Compilation Error:</span><br/>
-                          {runResult.compile_output}
-                        </div>
-                      )}
-                      {runResult.stderr && (
-                        <div className="mb-2 text-red-600">
-                          <span className="font-bold">Error:</span><br/>
-                          {runResult.stderr}
-                        </div>
-                      )}
-                      <div className="mb-2">
-                        <span className="font-bold text-gray-500">Expected Output:</span><br/>
-                        {runResult.expected_output}
-                      </div>
-                      <div>
-                        <span className="font-bold text-gray-500">Your Output:</span><br/>
-                        {runResult.stdout || "No output"}
-                      </div>
-                      {(runResult.time || runResult.memory) && (
-                        <div className="mt-2 flex gap-4 text-xs text-gray-500">
-                          {runResult.time && <span>Time: {Number(runResult.time).toFixed(3)}s</span>}
-                          {runResult.memory && <span>Memory: {runResult.memory} KB</span>}
-                        </div>
-                      )}
-                    </>
-                  ) : "Run or Submit the code to see output..."}
+                <label className="text-[10px] font-bold text-gray-400 uppercase mb-2">Output</label>
+                <div className="flex-1 bg-white border border-gray-200 rounded p-2 text-sm font-mono overflow-auto whitespace-pre-wrap text-slate-700">
+                  {output || "Output will appear here..."}
                 </div>
               </div>
             </div>
@@ -810,90 +244,6 @@ export default function CodingPage() {
           </div>
         </div>
       </div>
-
-      {/* Submit Assessment Confirm Modal */}
-      {showSubmitConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Submit Assessment</h3>
-            <p className="text-slate-600 mb-6">
-              Are you sure you want to submit your assessment? Once submitted, you cannot continue the exam.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button 
-                disabled={isFinishingAssessment}
-                onClick={() => setShowSubmitConfirm(false)}
-                className="px-4 py-2 font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button 
-                disabled={isFinishingAssessment}
-                onClick={() => {
-                  performSubmitAssessment(false);
-                }}
-                className="px-4 py-2 font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors shadow-sm disabled:opacity-50"
-              >
-                {isFinishingAssessment ? "Submitting..." : "OK"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Language Change Confirm Modal */}
-      {showLanguageConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Change Language</h3>
-            <p className="text-slate-600 mb-6">
-              Changing language will replace your current code with the template. Continue?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button 
-                onClick={() => setShowLanguageConfirm(null)}
-                className="px-4 py-2 font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={() => {
-                  const newLang = showLanguageConfirm.lang;
-                  const template = showLanguageConfirm.template;
-                  setLanguage(newLang);
-                  setCode(template);
-                  setLanguages(prev => ({...prev, [activeQuestionId]: newLang}));
-                  setCodes(prev => ({...prev, [activeQuestionId]: template}));
-                  setShowLanguageConfirm(null);
-                }}
-                className="px-4 py-2 font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Alert Modal */}
-      {alertMessage && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Notification</h3>
-            <p className="text-slate-600 mb-6">
-              {alertMessage}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button 
-                onClick={() => setAlertMessage(null)}
-                className="px-4 py-2 font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

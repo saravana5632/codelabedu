@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
-import { LayoutDashboard, FileText, BarChart3, Users, Settings, FileBox, LogOut, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, FileText, BarChart3, Users, Settings, FileBox, LogOut } from 'lucide-react';
 
 export default function FacultyLayout() {
   const location = useLocation();
@@ -13,12 +13,11 @@ export default function FacultyLayout() {
   const navItems = [
     { name: "Dashboard", path: "/faculty", icon: LayoutDashboard },
     { name: "Tests", path: "/faculty/tests", icon: FileText },
-    { name: "Anti-Malpractice", path: "/faculty/malpractice", icon: ShieldAlert },
+    { name: "Analytics", path: "/faculty/analytics", icon: BarChart3 },
     { name: "Students", path: "/faculty/students", icon: Users },
     { name: "Reports", path: "/faculty/reports", icon: FileBox },
     { name: "Settings", path: "/faculty/settings", icon: Settings },
   ];
-
 
   return (
     <div className="flex h-screen bg-gray-50">

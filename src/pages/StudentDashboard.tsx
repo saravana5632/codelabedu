@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api.ts";
 import { LogOut, PlayCircle, CheckCircle } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db as firestoreDb } from "../lib/firebase.ts";
 
 export default function StudentDashboard() {
   const [tests, setTests] = useState<any[]>([]);
@@ -13,22 +11,6 @@ export default function StudentDashboard() {
 
   useEffect(() => {
     fetchData();
-    
-    // Listen to changes in the "tests" collection in Firestore
-    // as requested, so when an admin updates isPublished/isActive,
-    // the dashboard refreshes automatically.
-    const unsubscribe = onSnapshot(
-      collection(firestoreDb, "tests"), 
-      () => {
-        console.log("Firestore 'tests' collection updated. Fetching latest data from API...");
-        fetchData();
-      },
-      (error) => {
-        console.error("Firestore listener error:", error);
-      }
-    );
-
-    return () => unsubscribe();
   }, []);
 
   const fetchData = async () => {
@@ -52,11 +34,7 @@ export default function StudentDashboard() {
     navigate("/login");
   };
 
-  const handleStartTest = (testId: number) => {
-    navigate(`/coding/${testId}`);
-  };
-
-  
+  const activeTest = tests[0]; // For simplicity, take the latest published test
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -74,32 +52,26 @@ export default function StudentDashboard() {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-12">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Available Tests</h2>
-          {tests.length > 0 ? (
-            <div className="space-y-4">
-              {tests.map(activeTest => (
-                <div key={activeTest.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900">{activeTest.title}</h3>
-                      <div className="mt-2 space-y-1 text-sm text-gray-600">
-                        <p>Subject: <span className="font-medium text-gray-900">{activeTest.subject}</span></p>
-                        <p>Duration: <span className="font-medium text-gray-900">{activeTest.duration} Minutes</span></p>
-                        <p>Total Marks: <span className="font-medium text-gray-900">{activeTest.totalMarks || 100}</span></p>
-                        <p>Number of Questions: <span className="font-medium text-gray-900">{activeTest.questionCount || 0}</span></p>
-                        <p>Status: <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mt-1">Available</span></p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleStartTest(activeTest.id)}
-                      className="inline-flex items-center gap-2 px-6 py-3 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
-                    >
-                      <PlayCircle className="w-5 h-5" />
-                      Start Test
-                    </button>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Available Test</h2>
+          {activeTest ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">{activeTest.title}</h3>
+                  <div className="mt-2 space-y-1 text-sm text-gray-600">
+                    <p>Subject: <span className="font-medium text-gray-900">{activeTest.subject}</span></p>
+                    <p>Duration: <span className="font-medium text-gray-900">{activeTest.duration} Minutes</span></p>
+                    <p>Status: <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mt-1">Available</span></p>
                   </div>
                 </div>
-              ))}
+                <button
+                  onClick={() => navigate(`/coding/${activeTest.id}`)}
+                  className="inline-flex items-center gap-2 px-6 py-3 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
+                >
+                  <PlayCircle className="w-5 h-5" />
+                  Start Test
+                </button>
+              </div>
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500">

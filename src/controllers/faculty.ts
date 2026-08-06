@@ -1,11 +1,8 @@
-// @ts-nocheck
 import { Response } from "express";
 import { db } from "../db/index.js";
-import { tests, questions, submissions, students, submissionStatistics, testAnalytics, malpracticeLogs, codeSimilarity } from "../db/schema.js";
+import { tests, questions, submissions, students, submissionStatistics, testAnalytics } from "../db/schema.js";
 import { eq, desc, inArray } from "drizzle-orm";
 import { AuthRequest } from "../middleware/authMiddleware.js";
-import { db as firestoreDb } from "../lib/firebaseBackend.js";
-import { doc, setDoc } from "firebase/firestore";
 
 export const getAllStudents = async (req: AuthRequest, res: Response) => {
   try {
@@ -16,51 +13,10 @@ export const getAllStudents = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const importStudents = async (req: AuthRequest, res: Response) => {
-  try {
-    const { studentsData } = req.body;
-    if (!studentsData || !Array.isArray(studentsData)) {
-      return res.status(400).json({ message: "Invalid data format" });
-    }
-
-    let importedCount = 0;
-    for (const s of studentsData) {
-      if (s.rollNumber && s.name && s.dob) {
-        // Upsert or insert if not exists
-        const existing = await db.select().from(students).where(eq(students.rollNumber, s.rollNumber)).get();
-        if (!existing) {
-          await db.insert(students).values({
-            rollNumber: s.rollNumber,
-            name: s.name,
-            dob: s.dob,
-            department: s.department || "Computer Science",
-            year: s.year || 1
-          }).run();
-          importedCount++;
-        } else {
-          // If already exists, optionally update DOB, but let's just update
-          await db.update(students).set({
-            name: s.name,
-            dob: s.dob,
-            department: s.department || "Computer Science",
-            year: s.year || 1
-          }).where(eq(students.rollNumber, s.rollNumber)).run();
-          importedCount++;
-        }
-      }
-    }
-
-    res.json({ message: `Successfully imported ${importedCount} students`, count: importedCount });
-  } catch (error) {
-    console.error("Import error:", error);
-    res.status(500).json({ message: "Error importing students" });
-  }
-};
-
 export const getFacultyTests = async (req: AuthRequest, res: Response) => {
   try {
     const facultyId = req.user!.id;
-    const allTests = await db.select().from(tests).orderBy(desc(tests.id)).all();
+    const allTests = await db.select().from(tests).where(eq(tests.facultyId, facultyId)).orderBy(desc(tests.id)).all();
     res.json(allTests);
   } catch (error) {
     res.status(500).json({ message: "Error fetching tests" });
@@ -70,7 +26,7 @@ export const getFacultyTests = async (req: AuthRequest, res: Response) => {
 export const createTest = async (req: AuthRequest, res: Response) => {
   try {
     const facultyId = req.user!.id;
-    const { title, subject, duration, startTime, endTime, isPublished } = req.body;
+    const { title, subject, duration, startTime, endTime } = req.body;
 
     const test = await db.insert(tests).values({
       title,
@@ -79,43 +35,19 @@ export const createTest = async (req: AuthRequest, res: Response) => {
       duration,
       startTime,
       endTime,
-      status: isPublished ? "published" : "draft"
+      status: "draft"
     }).returning().get();
 
-    // Map response for the test framework
-    const testRes = {
-        ...test,
-        isPublished: test.status === "published",
-        isActive: test.status === "published",
-        assessmentId: test.id,
-        description: test.subject,
-        questionCount: 0,
-        totalMarks: 100
-    };
-
-    if (firestoreDb) {
-      setDoc(doc(firestoreDb, "tests", test.id.toString()), { 
-        isPublished: testRes.isPublished, 
-        isActive: testRes.isActive, 
-        updatedAt: Date.now() 
-      }).catch(err => console.error("Firestore sync error:", err));
-    }
-
-    res.json({ message: "Test created", test: testRes });
+    res.json({ message: "Test created", test });
   } catch (error) {
-    console.error("Error creating test:", error); res.status(500).json({ message: "Error creating test" });
+    res.status(500).json({ message: "Error creating test" });
   }
 };
 
 export const updateTest = async (req: AuthRequest, res: Response) => {
   try {
     const testId = parseInt(req.params.id);
-    let { title, subject, duration, startTime, endTime, status, isPublished } = req.body;
-    
-    // Support test frameworks that send isPublished instead of status
-    if (isPublished === true) {
-        status = "published";
-    }
+    const { title, subject, duration, startTime, endTime, status } = req.body;
 
     const test = await db.update(tests).set({
       title,
@@ -126,17 +58,9 @@ export const updateTest = async (req: AuthRequest, res: Response) => {
       status
     }).where(eq(tests.id, testId)).returning().get();
 
-    if (firestoreDb && test) {
-      setDoc(doc(firestoreDb, "tests", test.id.toString()), { 
-        isPublished: test.status === "published", 
-        isActive: test.status === "published", 
-        updatedAt: Date.now() 
-      }).catch(err => console.error("Firestore sync error:", err));
-    }
-
     res.json({ message: "Test updated", test });
   } catch (error) {
-    console.error("Error updating test:", error); res.status(500).json({ message: "Error updating test" });
+    res.status(500).json({ message: "Error updating test" });
   }
 };
 
@@ -187,9 +111,6 @@ export const deleteTest = async (req: AuthRequest, res: Response) => {
         await db.delete(testAnalytics).where(eq(testAnalytics.testId, testId)).execute();
       }
       
-      await db.delete(malpracticeLogs).where(eq(malpracticeLogs.testId, testId)).execute();
-      await db.delete(codeSimilarity).where(eq(codeSimilarity.testId, testId)).execute();
-
       await db.delete(tests).where(eq(tests.id, testId)).execute();
       return res.json({ message: "Test permanently deleted" });
     }
@@ -242,7 +163,7 @@ export const duplicateTest = async (req: AuthRequest, res: Response) => {
 
 export const createQuestion = async (req: AuthRequest, res: Response) => {
   try {
-    const { testId, title, description, constraints, inputFormat, outputFormat, sampleInput, sampleOutput, publicExplanation, privateInput1, privateOutput1, privateInput2, privateOutput2, difficulty, functionName, returnType, parameters } = req.body;
+    const { testId, title, description, constraints, inputFormat, outputFormat, sampleInput, sampleOutput, difficulty } = req.body;
 
     const question = await db.insert(questions).values({
       testId,
@@ -253,15 +174,7 @@ export const createQuestion = async (req: AuthRequest, res: Response) => {
       outputFormat,
       sampleInput,
       sampleOutput,
-      publicExplanation,
-      privateInput1,
-      privateOutput1,
-      privateInput2,
-      privateOutput2,
-      difficulty,
-      functionName,
-      returnType,
-      parameters
+      difficulty
     }).returning().get();
 
     res.json({ message: "Question added", question });
@@ -302,59 +215,5 @@ export const getTestResults = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error("Result error:", error);
     res.status(500).json({ message: "Error fetching results" });
-  }
-};
-
-export const getTestQuestions = async (req: AuthRequest, res: Response) => {
-  try {
-    const testId = parseInt(req.params.id);
-    const testQs = await db.select().from(questions).where(eq(questions.testId, testId)).all();
-    res.json(testQs);
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching test questions" });
-  }
-};
-
-export const updateQuestion = async (req: AuthRequest, res: Response) => {
-  try {
-    const questionId = parseInt(req.params.id);
-    const { title, description, constraints, inputFormat, outputFormat, sampleInput, sampleOutput, publicExplanation, difficulty, functionName, returnType, parameters, privateInput1, privateOutput1, privateInput2, privateOutput2 } = req.body;
-    
-    if (!title) return res.status(400).json({ message: "Title is required" });
-
-    const existing = await db.select().from(questions).where(eq(questions.id, questionId)).get();
-    if (!existing) return res.status(404).json({ message: "Question not found" });
-
-    const updated = await db.update(questions).set({
-      title, description, constraints, inputFormat, outputFormat, sampleInput, sampleOutput, publicExplanation, difficulty, functionName, returnType, parameters, privateInput1, privateOutput1, privateInput2, privateOutput2
-    }).where(eq(questions.id, questionId)).returning().get();
-    
-    res.json({ message: "Question updated successfully", question: updated });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error updating question" });
-  }
-};
-
-export const deleteQuestion = async (req: AuthRequest, res: Response) => {
-  try {
-    const questionId = parseInt(req.params.id);
-    
-    const question = await db.select().from(questions).where(eq(questions.id, questionId)).get();
-    if (!question) return res.status(404).json({ message: "Question not found" });
-
-    const test = await db.select().from(tests).where(eq(tests.id, question.testId)).get();
-    
-    const subs = await db.select({ id: submissions.id }).from(submissions).where(eq(submissions.questionId, questionId)).all();
-    
-    if (test?.status !== 'draft' && subs.length > 0) {
-      return res.status(409).json({ message: "Cannot delete question after students have submitted." });
-    }
-    
-    await db.delete(questions).where(eq(questions.id, questionId)).execute();
-    res.json({ message: "Question deleted successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error deleting question" });
   }
 };

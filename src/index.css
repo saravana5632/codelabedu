@@ -2,7 +2,6 @@
 
 @layer base {
   body {
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-    @apply text-slate-800;
+    @apply text-slate-800 font-sans;
   }
 }

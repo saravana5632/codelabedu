@@ -12,7 +12,6 @@ import DashboardHome from "./pages/faculty/DashboardHome.tsx";
 import TestManagement from "./pages/faculty/TestManagement.tsx";
 import TestAnalytics from "./pages/faculty/TestAnalytics.tsx";
 import StudentManagement from "./pages/faculty/StudentManagement.tsx";
-import MalpracticeDashboard from "./pages/faculty/MalpracticeDashboard.tsx";
 
 export default function App() {
   return (
@@ -26,7 +25,6 @@ export default function App() {
         <Route path="/faculty" element={<FacultyLayout />}>
           <Route index element={<DashboardHome />} />
           <Route path="tests" element={<TestManagement />} />
-          <Route path="malpractice" element={<MalpracticeDashboard />} />
           <Route path="analytics/:id" element={<TestAnalytics />} />
           {/* Placeholders for other nav items */}
           <Route path="analytics" element={<div className="p-4">Please select a test from the Tests tab to view analytics.</div>} />
@@ -35,9 +33,8 @@ export default function App() {
           <Route path="settings" element={<div className="p-4">Settings Coming Soon</div>} />
         </Route>
 
-        <Route path="/coding/:testId" element={<CodingPage />} />
+        <Route path="/coding/:questionId" element={<CodingPage />} />
       </Routes>
     </Router>
   );
 }
-

@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import api from '../../lib/api';
+import api from '../../lib/api.ts';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, LineChart, Line, ResponsiveContainer } from 'recharts';
 import { Download, Users, CheckCircle, XCircle, Clock, Award, AlertTriangle, FileText, DownloadCloud } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
@@ -27,8 +29,6 @@ export default function TestAnalytics() {
   const exportExcel = () => {
     const ws = XLSX.utils.json_to_sheet(data.submissions.map((s:any) => ({
       'Roll Number': s.studentId,
-      'Score': s.score || 0,
-      'Execution Time': s.execTimeMs ? `${s.execTimeMs}ms` : 'N/A',
       'Language': s.language,
       'Status': s.status,
       'Submitted At': new Date(s.submittedAt).toLocaleString()
@@ -38,13 +38,63 @@ export default function TestAnalytics() {
     XLSX.writeFile(wb, `test_${id}_submissions.xlsx`);
   };
 
+  const exportCSV = () => {
+    const ws = XLSX.utils.json_to_sheet(data.submissions.map((s:any) => ({
+      'Roll Number': s.studentId,
+      'Language': s.language,
+      'Status': s.status,
+      'Submitted At': new Date(s.submittedAt).toLocaleString()
+    })));
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `test_${id}_submissions.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+    doc.text(`Test ${id} Submissions`, 14, 15);
+    const tableData = data.submissions.map((s:any) => [
+      s.studentId, s.language, s.status, new Date(s.submittedAt).toLocaleString()
+    ]);
+    (doc as any).autoTable({
+      head: [['Student ID', 'Language', 'Status', 'Submitted At']],
+      body: tableData,
+      startY: 20,
+    });
+    doc.save(`test_${id}_submissions.pdf`);
+  };
+
+  // Mock data for some charts
+  const submissionStatus = [
+    { name: 'Submitted', value: data.summary.submitted },
+    { name: 'Not Submitted', value: data.summary.notSubmitted }
+  ];
+
+  const scoreDistribution = [
+    { range: '0-20', count: 2 },
+    { range: '21-40', count: 5 },
+    { range: '41-60', count: 12 },
+    { range: '61-80', count: 25 },
+    { range: '81-100', count: 10 },
+  ];
+
+  const timelineData = [
+    { time: '10:00', submissions: 2 },
+    { time: '10:15', submissions: 15 },
+    { time: '10:30', submissions: 45 },
+    { time: '10:45', submissions: 30 },
+    { time: '11:00', submissions: 5 },
+  ];
+
   // Compute sorted and filtered performers
-  const topPerformers = [...(data.submissions || [])]
-    .filter((s:any) => 
-      (s.studentId?.toString() || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
-      (s.studentRoll || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
-      (s.studentName || '').toLowerCase().includes((searchTerm || '').toLowerCase())
-    )
+  const topPerformers = [...data.submissions]
+    .filter((s:any) => s.studentId.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a:any, b:any) => {
       let comparison = 0;
       if (sortField === 'score') {
@@ -56,23 +106,6 @@ export default function TestAnalytics() {
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-
-  const hasSubmissions = data.summary.submitted > 0;
-
-  const timelineData = hasSubmissions && data.timeline?.length > 0 ? data.timeline : [];
-  
-  const scoreDistribution = hasSubmissions && data.scoreDistribution ? data.scoreDistribution : [
-    { range: '0-20', count: 0 },
-    { range: '21-40', count: 0 },
-    { range: '41-60', count: 0 },
-    { range: '61-80', count: 0 },
-    { range: '81-100', count: 0 },
-  ];
-
-  const submissionStatus = [
-    { name: 'Submitted', value: data.summary.submitted },
-    { name: 'Pending', value: data.summary.notSubmitted }
-  ];
 
   const handleSort = (field: 'score' | 'time') => {
     if (sortField === field) {
@@ -89,12 +122,14 @@ export default function TestAnalytics() {
         <h2 className="text-2xl font-bold text-gray-900">Test Analytics (Test ID: {id})</h2>
         <div className="flex gap-2">
           <button onClick={exportExcel} className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700"><DownloadCloud className="w-4 h-4"/> Excel</button>
+          <button onClick={exportCSV} className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"><FileText className="w-4 h-4"/> CSV</button>
+          <button onClick={exportPDF} className="flex items-center gap-2 bg-red-600 text-white px-3 py-1.5 rounded text-sm hover:bg-red-700"><Download className="w-4 h-4"/> PDF</button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Total Students</p>
+          <p className="text-sm text-gray-500">Total Registered</p>
           <p className="text-2xl font-bold">{data.summary.totalStudents}</p>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
@@ -106,180 +141,89 @@ export default function TestAnalytics() {
           <p className="text-2xl font-bold text-blue-600">{data.summary.submitted}</p>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Pending</p>
-          <p className="text-2xl font-bold text-gray-700">{data.summary.notSubmitted}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Pass</p>
+          <p className="text-sm text-gray-500">Passed</p>
           <p className="text-2xl font-bold text-green-600">{data.summary.passCount}</p>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Fail</p>
-          <p className="text-2xl font-bold text-red-600">{data.summary.failCount}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Average Score</p>
-          <p className="text-2xl font-bold text-indigo-600">{data.summary.avgScore}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Highest Score</p>
-          <p className="text-2xl font-bold text-teal-600">{data.summary.highestScore}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Lowest Score</p>
-          <p className="text-2xl font-bold text-rose-600">{data.summary.lowestScore}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500">Average Execution Time</p>
+          <p className="text-sm text-gray-500">Avg Exec Time</p>
           <p className="text-2xl font-bold text-orange-600">{data.summary.avgExecTime}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Pass vs Fail */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] flex flex-col relative">
-          <h3 className="text-lg font-bold mb-4 shrink-0">Pass vs Fail</h3>
-          <div className="flex-1 min-h-0 relative">
-            {!hasSubmissions && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                <p className="text-gray-500 font-medium">No submissions yet.</p>
-              </div>
-            )}
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie 
-                  data={data.passFail} 
-                  cx="50%" cy="50%" 
-                  innerRadius={55} 
-                  outerRadius={80} 
-                  fill="#8884d8" 
-                  paddingAngle={5} 
-                  dataKey="value"
-                  labelLine={false}
-                  label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                    if (value === 0) return null;
-                    const RADIAN = Math.PI / 180;
-                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                    return (
-                      <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight="bold">
-                        {value}
-                      </text>
-                    );
-                  }}
-                >
-                  {data.passFail.map((entry:any, index:number) => (
-                    <Cell key={`cell-${index}`} fill={index === 0 ? '#10B981' : '#EF4444'} />
-                  ))}
-                </Pie>
-                <RechartsTooltip />
-                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[300px]">
+          <h3 className="text-lg font-bold mb-4">Pass vs Fail</h3>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={data.passFail} cx="50%" cy="50%" innerRadius={50} outerRadius={70} fill="#8884d8" paddingAngle={5} dataKey="value" label>
+                {data.passFail.map((entry:any, index:number) => (
+                  <Cell key={`cell-${index}`} fill={index === 0 ? '#10B981' : '#EF4444'} />
+                ))}
+              </Pie>
+              <RechartsTooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
 
         {/* Submission Status */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] flex flex-col relative">
-          <h3 className="text-lg font-bold mb-4 shrink-0">Submission Status</h3>
-          <div className="flex-1 min-h-0 relative">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie 
-                  data={submissionStatus} 
-                  cx="50%" cy="50%" 
-                  innerRadius={45} 
-                  outerRadius={80} 
-                  fill="#8884d8" 
-                  dataKey="value"
-                  labelLine={false}
-                  label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                    if (value === 0) return null;
-                    const RADIAN = Math.PI / 180;
-                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                    return (
-                      <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight="bold">
-                        {value}
-                      </text>
-                    );
-                  }}
-                >
-                  <Cell fill="#3B82F6" />
-                  <Cell fill="#D1D5DB" />
-                </Pie>
-                <RechartsTooltip />
-                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[300px]">
+          <h3 className="text-lg font-bold mb-4">Submission Status</h3>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={submissionStatus} cx="50%" cy="50%" innerRadius={0} outerRadius={70} fill="#8884d8" dataKey="value" label>
+                <Cell fill="#3B82F6" />
+                <Cell fill="#D1D5DB" />
+              </Pie>
+              <RechartsTooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
 
         {/* Language Usage */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] flex flex-col relative">
-          <h3 className="text-lg font-bold mb-4 shrink-0">Language Usage</h3>
-          <div className="flex-1 min-h-0 relative">
-            {(!data.languageUsage || data.languageUsage.length === 0 || !hasSubmissions) && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                <p className="text-gray-500 font-medium">No language data available.</p>
-              </div>
-            )}
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.languageUsage}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                <RechartsTooltip cursor={{ fill: '#f3f4f6' }} />
-                <Bar dataKey="count" fill="#8B5CF6" radius={[4, 4, 0, 0]} maxBarSize={50} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[300px]">
+          <h3 className="text-lg font-bold mb-4">Language Usage</h3>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data.languageUsage}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <RechartsTooltip />
+              <Bar dataKey="count" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Submission Timeline */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] flex flex-col relative">
-          <h3 className="text-lg font-bold mb-4 shrink-0">Submission Timeline</h3>
-          <div className="flex-1 min-h-0 relative">
-            {!hasSubmissions && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                <p className="text-gray-500 font-medium">No submissions yet.</p>
-              </div>
-            )}
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={timelineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="time" tick={{ fontSize: 12 }} />
-                <YAxis allowDecimals={false} domain={[0, 'auto']} tick={{ fontSize: 12 }} />
-                <RechartsTooltip />
-                <Line type="monotone" dataKey="submissions" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[300px]">
+          <h3 className="text-lg font-bold mb-4">Submission Timeline</h3>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={timelineData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="time" />
+              <YAxis />
+              <RechartsTooltip />
+              <Line type="monotone" dataKey="submissions" stroke="#3B82F6" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
 
         {/* Score Distribution */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] flex flex-col relative">
-          <h3 className="text-lg font-bold mb-4 shrink-0">Score Distribution</h3>
-          <div className="flex-1 min-h-0 relative">
-            {!hasSubmissions && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                <p className="text-gray-500 font-medium">No scores available.</p>
-              </div>
-            )}
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={scoreDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="range" tick={{ fontSize: 12 }} />
-                <YAxis allowDecimals={false} domain={[0, 'auto']} tick={{ fontSize: 12 }} />
-                <RechartsTooltip cursor={{ fill: '#f3f4f6' }} />
-                <Bar dataKey="count" fill="#F59E0B" radius={[4, 4, 0, 0]} maxBarSize={50} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[300px]">
+          <h3 className="text-lg font-bold mb-4">Score Distribution</h3>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={scoreDistribution}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="range" />
+              <YAxis />
+              <RechartsTooltip />
+              <Bar dataKey="count" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -307,7 +251,7 @@ export default function TestAnalytics() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rank</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Roll No</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student ID</th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 transition-colors"
                   onClick={() => handleSort('score')}
@@ -336,9 +280,9 @@ export default function TestAnalytics() {
             <tbody className="divide-y divide-gray-200">
               {topPerformers.length > 0 ? (
                 topPerformers.slice(0, 10).map((sub:any, idx:number) => (
-                  <tr key={sub.studentId || sub.id || idx}>
+                  <tr key={sub.id}>
                     <td className="px-6 py-4">#{idx + 1}</td>
-                    <td className="px-6 py-4 font-medium text-gray-900">{sub.studentRoll || sub.studentId}</td>
+                    <td className="px-6 py-4">{sub.studentId}</td>
                     <td className="px-6 py-4 font-semibold text-green-600">{sub.score || 0}</td>
                     <td className="px-6 py-4">{new Date(sub.submittedAt).toLocaleString()}</td>
                     <td className="px-6 py-4 text-orange-600">{sub.execTimeMs ? `${sub.execTimeMs}ms` : 'N/A'}</td>
@@ -365,19 +309,19 @@ export default function TestAnalytics() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Roll No</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student ID</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Language</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {data.submissions.map((sub:any, idx:number) => (
-                <tr key={sub.id || sub.studentId || idx}>
-                  <td className="px-6 py-4 font-medium text-gray-900">{sub.studentRoll || sub.studentId}</td>
+              {data.submissions.map((sub:any) => (
+                <tr key={sub.id}>
+                  <td className="px-6 py-4">{sub.studentId}</td>
                   <td className="px-6 py-4">{sub.language}</td>
                   <td className="px-6 py-4">
-                    <span className={`px-2 py-1 text-xs rounded-full ${(sub.status || '').toLowerCase().includes('pass') || (sub.status || '').toLowerCase().includes('accept') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    <span className={`px-2 py-1 text-xs rounded-full ${sub.status.toLowerCase().includes('pass') || sub.status.toLowerCase().includes('accept') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                       {sub.status}
                     </span>
                   </td>
