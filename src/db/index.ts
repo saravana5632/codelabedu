@@ -32,17 +32,49 @@ declare global {
 
 export const createPool = () => {
   if (!global._postgresPool) {
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('[YOUR-PASSWORD]')) {
-       console.error("WARNING: DATABASE_URL is not set or contains placeholder password.");
+    if (process.env.SQL_HOST) {
+      console.log('Using Cloud SQL environment variables');
+      global._postgresPool = new Pool({
+        host: process.env.SQL_HOST,
+        user: process.env.SQL_USER,
+        password: process.env.SQL_PASSWORD,
+        database: process.env.SQL_DB_NAME,
+        max: 10,
+        connectionTimeoutMillis: 15000,
+      });
+    } else {
+      if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('[YOUR-PASSWORD]')) {
+         console.error("WARNING: DATABASE_URL is not set or contains placeholder password.");
+      }
+      let connectionString = process.env.DATABASE_URL!;
+      if (connectionString && connectionString.includes('supabase.co')) {
+        try {
+          const urlObj = new URL(connectionString);
+          if (urlObj.password.startsWith('%5B') && urlObj.password.endsWith('%5D')) {
+            urlObj.password = urlObj.password.slice(3, -3);
+          }
+          const hostParts = urlObj.hostname.split('.');
+          if (hostParts[0] === 'db' && hostParts.length >= 3) {
+            const tenantId = hostParts[1];
+            urlObj.hostname = `aws-0-ap-southeast-1.pooler.supabase.com`;
+            urlObj.port = '6543';
+            if (urlObj.username === 'postgres') {
+              urlObj.username = `postgres.${tenantId}`;
+            }
+            connectionString = urlObj.toString();
+          }
+        } catch (e) {
+          console.error("Error rewriting supabase url:", e);
+        }
+      }
+      const isSupabase = connectionString && connectionString.includes('supabase');
+      global._postgresPool = new Pool({
+        connectionString: connectionString,
+        max: 10,
+        connectionTimeoutMillis: 15000,
+        ssl: isSupabase ? { rejectUnauthorized: false } : undefined,
+      });
     }
-    const connectionString = process.env.DATABASE_URL!;
-    const isSupabase = connectionString && connectionString.includes('supabase');
-    global._postgresPool = new Pool({
-      connectionString: connectionString,
-      max: 10,
-      connectionTimeoutMillis: 15000,
-      ssl: isSupabase ? { rejectUnauthorized: false } : undefined,
-    });
     
     global._postgresPool.on('error', (err) => {
       console.error('Unexpected error on idle SQL pool client:', err);
@@ -156,119 +188,8 @@ export async function seedInitialData() {
       if (existingFac) facId = existingFac.id;
     }
 
-    const testRes = await (db.select({ count: count() }).from(schema.tests) as any).get();
-    if (Number(testRes?.count || 0) === 0) {
-      const now = new Date();
-      const future = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
-
-      const [newTest] = await db
-        .insert(schema.tests)
-        .values({
-          title: 'DESIGN AND ANALYSIS OF COMPUTER ALGORITHM',
-          subject: '23CB1501',
-          facultyId: facId,
-          duration: 60,
-          startTime: now.toISOString(),
-          endTime: future.toISOString(),
-          status: 'published',
-        })
-        .returning();
-
-      const testId = newTest ? newTest.id : 1;
-
-      // Seed Questions
-      await db.insert(schema.questions).values([
-        {
-          testId,
-          title: 'Binary Search',
-          description:
-            'Given an array of integers nums which is sorted in ascending order, and an integer target, write a function to search target in nums. If target exists, then return its index. Otherwise, return -1.',
-          constraints:
-            '1 <= nums.length <= 10^4\n-10^4 < nums[i], target < 10^4\nAll the integers in nums are unique.\nnums is sorted in ascending order.',
-          inputFormat: '[-1,0,3,5,9,12]\n9',
-          outputFormat: '4',
-          sampleInput: '[-1,0,3,5,9,12]\n9',
-          sampleOutput: '4',
-          publicExplanation: '9 exists in nums and its index is 4',
-          privateInput1: '[-1,0,3,5,9,12]\n2',
-          privateOutput1: '-1',
-          privateInput2: '[5]\n5',
-          privateOutput2: '0',
-          difficulty: 'easy',
-          functionName: 'search',
-          returnType: 'int',
-          parameters: JSON.stringify([
-            { name: 'nums', type: 'int[]' },
-            { name: 'target', type: 'int' },
-          ]),
-        },
-        {
-          testId,
-          title: 'Merge Sort',
-          description:
-            'Given an array of integers nums, sort the array in ascending order using the Merge Sort algorithm and return it.',
-          constraints: '1 <= nums.length <= 5 * 10^4\n-5 * 10^4 <= nums[i] <= 5 * 10^4',
-          inputFormat: '[5,2,3,1]',
-          outputFormat: '[1,2,3,5]',
-          sampleInput: '[5,2,3,1]',
-          sampleOutput: '[1,2,3,5]',
-          publicExplanation: 'After sorting the array, the elements are in ascending order.',
-          privateInput1: '[5,1,1,2,0,0]',
-          privateOutput1: '[0,0,1,1,2,5]',
-          privateInput2: '[1]',
-          privateOutput2: '[1]',
-          difficulty: 'medium',
-          functionName: 'sortArray',
-          returnType: 'int[]',
-          parameters: JSON.stringify([{ name: 'nums', type: 'int[]' }]),
-        },
-        {
-          testId,
-          title: 'Quick Sort',
-          description:
-            'Given an array of integers nums, sort the array in ascending order using the Quick Sort algorithm and return it.',
-          constraints: '1 <= nums.length <= 5 * 10^4\n-5 * 10^4 <= nums[i] <= 5 * 10^4',
-          inputFormat: '[5,2,3,1]',
-          outputFormat: '[1,2,3,5]',
-          sampleInput: '[5,2,3,1]',
-          sampleOutput: '[1,2,3,5]',
-          publicExplanation: 'After sorting the array, the elements are in ascending order.',
-          privateInput1: '[5,1,1,2,0,0]',
-          privateOutput1: '[0,0,1,1,2,5]',
-          privateInput2: '[1]',
-          privateOutput2: '[1]',
-          difficulty: 'medium',
-          functionName: 'sortArray',
-          returnType: 'int[]',
-          parameters: JSON.stringify([{ name: 'nums', type: 'int[]' }]),
-        },
-        {
-          testId,
-          title: 'Matrix Multiplication',
-          description:
-            'Given two 2D integer arrays mat1 and mat2, return the product of the two matrices.',
-          constraints:
-            '1 <= mat1.length, mat2[0].length <= 50\n1 <= mat1[0].length == mat2.length <= 50\n-100 <= mat1[i][j], mat2[i][j] <= 100',
-          inputFormat: '[[1,2],[3,4]]\n[[5,6],[7,8]]',
-          outputFormat: '[[19,22],[43,50]]',
-          sampleInput: '[[1,2],[3,4]]\n[[5,6],[7,8]]',
-          sampleOutput: '[[19,22],[43,50]]',
-          publicExplanation: 'Matrix multiplication of a 2x2 with a 2x2.',
-          privateInput1: '[[1,0],[0,1]]\n[[5,6],[7,8]]',
-          privateOutput1: '[[5,6],[7,8]]',
-          privateInput2: '[[1,2,3]]\n[[1],[2],[3]]',
-          privateOutput2: '[[14]]',
-          difficulty: 'hard',
-          functionName: 'multiply',
-          returnType: 'int[][]',
-          parameters: JSON.stringify([
-            { name: 'mat1', type: 'int[][]' },
-            { name: 'mat2', type: 'int[][]' },
-          ]),
-        },
-      ]);
-      console.log('Seeded default test and questions.');
-    }
+    /* Test seeding removed */
+    
   } catch (err) {
     console.error('Error seeding initial data:', err);
   }

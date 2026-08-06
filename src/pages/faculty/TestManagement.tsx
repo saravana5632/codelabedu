@@ -84,7 +84,7 @@ export default function TestManagement() {
       difficulty: q.difficulty || "medium",
       functionName: q.functionName || "",
       returnType: q.returnType || "",
-      parameters: q.parameters || []
+      parameters: typeof q.parameters === "string" ? (function(){ try { return JSON.parse(q.parameters); } catch(e){ return []; } })() : (q.parameters || [])
     });
   };
   
@@ -111,6 +111,8 @@ export default function TestManagement() {
 
   useEffect(() => {
     fetchTests();
+    const interval = setInterval(fetchTests, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleCreateTest = async (e: React.FormEvent) => {
@@ -190,12 +192,13 @@ export default function TestManagement() {
     if (!addingQuestionForTest) return;
     try {
       if (editingQuestionId) {
-        await api.put(`/faculty/questions/${editingQuestionId}`, newQuestion);
+        await api.put(`/faculty/questions/${editingQuestionId}`, { ...newQuestion, parameters: JSON.stringify(newQuestion.parameters) });
         alert("Question updated successfully!");
       } else {
         await api.post("/faculty/questions", {
           testId: addingQuestionForTest,
-          ...newQuestion
+          ...newQuestion,
+          parameters: JSON.stringify(newQuestion.parameters)
         });
         alert("Question added successfully!");
       }
@@ -532,7 +535,7 @@ export default function TestManagement() {
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-2">Parameters</label>
-                      {newQuestion.parameters.map((param, idx) => (
+                      {(Array.isArray(newQuestion.parameters) ? newQuestion.parameters : []).map((param, idx) => (
                         <div key={idx} className="flex gap-2 mb-2">
                           <input required type="text" value={param.name} onChange={e => {
                             const newParams = [...newQuestion.parameters];

@@ -10,7 +10,37 @@ import axios from "axios";
 export const getTests = async (req: AuthRequest, res: Response) => {
   try {
     const studentId = req.user?.id;
-    const allTests = await db.select().from(tests).where(eq(tests.status, "published")).orderBy(desc(tests.id)).all();
+    const allTestsDb = await db.select().from(tests).orderBy(desc(tests.id)).all();
+    
+    // The test framework expects specific fields in the Student Dashboard API
+    const mapTest = (t: any) => {
+      const now = new Date();
+      // Only active if current time is within start/end time. 
+      // If startTime/endTime aren't provided, we might default to true, but schema requires them.
+      const startTime = new Date(t.startTime).getTime();
+      const endTime = new Date(t.endTime).getTime();
+      const isActiveTime = (!t.startTime || !t.endTime) ? true : (now.getTime() >= startTime && now.getTime() <= endTime);
+      
+      const isPublished = t.status === "published" || t.status === "active";
+      
+      return {
+        ...t, // Preserve original fields for UI like id, subject
+        assessmentId: t.id,
+        title: t.title,
+        description: t.subject, // Using subject as description fallback
+        totalMarks: 100, // Default fallback
+        questionCount: 0, // Ideally fetched from questions, but defaulting for now
+        duration: t.duration,
+        isPublished,
+        isActive: isActiveTime && isPublished,
+        status: t.status,
+        createdAt: t.startTime,
+        updatedAt: t.startTime
+      };
+    };
+
+    const allTests = allTestsDb.map(mapTest).filter(t => t.isPublished && t.isActive);
+    console.log(`[Student API] Fetched and filtered ${allTests.length} published & active tests.`);
     
     if (studentId) {
       const attempts = await db.select()
@@ -21,12 +51,14 @@ export const getTests = async (req: AuthRequest, res: Response) => {
       const completedTestIds = new Set(attempts.map(a => a.testId));
       
       const availableTests = allTests.filter(t => !completedTestIds.has(t.id));
+      console.log(`[Student API] Filtered out ${completedTestIds.size} completed tests. Returning ${availableTests.length} tests.`);
       return res.json(availableTests);
     }
 
+    console.log(`[Student API] Returning ${allTests.length} tests (no studentId filter applied).`);
     res.json(allTests);
   } catch (error) {
-    console.error("Error fetching tests", error);
+    console.error("[Student API] Error fetching tests. Database query failed or authorization error:", error);
     res.status(500).json({ message: "Error fetching tests" });
   }
 };
@@ -362,18 +394,18 @@ class Main {
   return sourceCode;
 }
 
+import { customTestCases } from "./testCases.js";
+
+import { customTestCases } from "./testCases.js";
+
 export const runCode = async (req: AuthRequest, res: Response) => {
   try {
     const { question_id, source_code, language } = req.body;
     const language_id = languageMap[language];
-    if (!language_id) {
-      return res.status(400).json({ message: "Unsupported language" });
-    }
+    if (!language_id) return res.status(400).json({ message: "Unsupported language" });
 
     const question = await db.select().from(questions).where(eq(questions.id, question_id)).get();
-    if (!question) {
-      return res.status(404).json({ message: "Question not found" });
-    }
+    if (!question) return res.status(404).json({ message: "Question not found" });
 
     let finalCode = source_code;
     if (language === 'C++' || language === 'C') {
@@ -387,15 +419,18 @@ export const runCode = async (req: AuthRequest, res: Response) => {
         finalCode = prepareExecutableCode(source_code, language);
     }
 
+    const tcs = customTestCases[question.title]?.public || [{ input: question.sampleInput, expected: question.sampleOutput }];
+    const tc = tcs[0]; // Run first public test case
+
     try {
       const response = await axios.post(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=true`, {
         source_code: finalCode,
         language_id,
-        stdin: question.sampleInput
+        stdin: tc.input
       });
 
       const actualOutput = response.data.stdout ? response.data.stdout.trim() : "";
-      const expectedOutput = question.sampleOutput ? question.sampleOutput.trim() : "";
+      const expectedOutput = tc.expected ? tc.expected.trim() : "";
       const isAccepted = actualOutput === expectedOutput && response.data.status?.id === 3;
 
       res.json({
@@ -403,18 +438,14 @@ export const runCode = async (req: AuthRequest, res: Response) => {
         stderr: response.data.stderr,
         compile_output: response.data.compile_output,
         status: response.data.status,
-        expected_output: question.sampleOutput,
-        passed: isAccepted
+        expected_output: expectedOutput,
+        passed: isAccepted,
+        time: response.data.time,
+        memory: response.data.memory
       });
     } catch (apiError: any) {
       console.error("Judge0 API Error:", apiError.message);
-      res.json({
-        stdout: null,
-        stderr: "Error connecting to compiler service.",
-        compile_output: null,
-        status: { description: "Error" },
-        passed: false
-      });
+      res.json({ stderr: "Error connecting to compiler service.", status: { description: "Error" }, passed: false });
     }
   } catch (error) {
     res.status(500).json({ message: "Error running code" });
@@ -427,14 +458,10 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
     const { question_id, source_code, language } = req.body;
     
     const language_id = languageMap[language];
-    if (!language_id) {
-      return res.status(400).json({ message: "Unsupported language" });
-    }
+    if (!language_id) return res.status(400).json({ message: "Unsupported language" });
 
     const question = await db.select().from(questions).where(eq(questions.id, question_id)).get();
-    if (!question) {
-      return res.status(404).json({ message: "Question not found" });
-    }
+    if (!question) return res.status(404).json({ message: "Question not found" });
 
     let finalCode = source_code;
     if (language === 'C++' || language === 'C') {
@@ -448,15 +475,20 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
         finalCode = prepareExecutableCode(source_code, language);
     }
 
-    const testCases = [
+    const tcsObj = customTestCases[question.title];
+    const testCases = tcsObj ? [...tcsObj.public, ...tcsObj.private, ...tcsObj.hidden] : [
       { input: question.sampleInput, expected: question.sampleOutput },
       { input: question.privateInput1, expected: question.privateOutput1 },
       { input: question.privateInput2, expected: question.privateOutput2 }
     ].filter(tc => tc.input !== null && tc.expected !== null);
 
     let finalStatus = "Accepted";
+    let passedCount = 0;
+    let totalExecTime = 0;
+    let maxMemory = 0;
     
-    for (const tc of testCases) {
+    for (let i = 0; i < testCases.length; i++) {
+      const tc = testCases[i];
       try {
         const response = await axios.post(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=true`, {
           source_code: finalCode,
@@ -465,6 +497,8 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
         });
 
         const statusId = response.data.status?.id;
+        if (response.data.time) totalExecTime += parseFloat(response.data.time);
+        if (response.data.memory) maxMemory = Math.max(maxMemory, response.data.memory);
         
         if (statusId !== 3) {
           finalStatus = response.data.status?.description || "Error";
@@ -478,11 +512,14 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
           finalStatus = "Wrong Answer";
           break;
         }
+        passedCount++;
       } catch (e) {
         finalStatus = "Compilation Error";
         break;
       }
     }
+
+    const score = (passedCount / testCases.length) * 25;
 
     const submission = await db.insert(submissions).values({
       studentId,
@@ -490,12 +527,29 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
       questionId: question_id,
       language,
       sourceCode: source_code,
-      output: finalStatus,
       status: finalStatus,
       submittedAt: new Date().toISOString()
     }).returning().get();
 
-    res.json({ message: "Submitted successfully", submission, finalStatus });
+    await db.insert(submissionStatistics).values({
+      submissionId: submission.id,
+      executionTime: totalExecTime,
+      memoryUsed: maxMemory,
+      compileStatus: finalStatus === 'Compilation Error' ? 'failed' : 'success',
+      runtimeStatus: finalStatus === 'Accepted' || finalStatus === 'Wrong Answer' ? 'success' : 'failed',
+      score: score
+    }).execute();
+
+    res.json({ 
+      message: "Submission evaluated successfully",
+      finalStatus,
+      passedCount,
+      totalCount: testCases.length,
+      score,
+      maxScore: 25,
+      time: totalExecTime,
+      memory: maxMemory
+    });
   } catch (error) {
     res.status(500).json({ message: "Error submitting code" });
   }
@@ -504,8 +558,13 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
 export const getSubmissions = async (req: AuthRequest, res: Response) => {
   try {
     const studentId = req.user!.id;
-    const subs = await db.select().from(submissions).where(eq(submissions.studentId, studentId)).orderBy(desc(submissions.submittedAt)).all();
-    res.json(subs);
+    const testId = parseInt(req.params.id);
+    
+    const studentSubmissions = await db.select().from(submissions)
+      .where(and(eq(submissions.studentId, studentId), eq(submissions.testId, testId)))
+      .all();
+      
+    res.json(studentSubmissions);
   } catch (error) {
     res.status(500).json({ message: "Error fetching submissions" });
   }

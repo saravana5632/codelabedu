@@ -4,6 +4,8 @@ import { db } from "../db/index.js";
 import { tests, questions, submissions, students, submissionStatistics, testAnalytics, malpracticeLogs, codeSimilarity } from "../db/schema.js";
 import { eq, desc, inArray } from "drizzle-orm";
 import { AuthRequest } from "../middleware/authMiddleware.js";
+import { db as firestoreDb } from "../lib/firebaseBackend.js";
+import { doc, setDoc } from "firebase/firestore";
 
 export const getAllStudents = async (req: AuthRequest, res: Response) => {
   try {
@@ -58,7 +60,7 @@ export const importStudents = async (req: AuthRequest, res: Response) => {
 export const getFacultyTests = async (req: AuthRequest, res: Response) => {
   try {
     const facultyId = req.user!.id;
-    const allTests = await db.select().from(tests).where(eq(tests.facultyId, facultyId)).orderBy(desc(tests.id)).all();
+    const allTests = await db.select().from(tests).orderBy(desc(tests.id)).all();
     res.json(allTests);
   } catch (error) {
     res.status(500).json({ message: "Error fetching tests" });
@@ -68,7 +70,7 @@ export const getFacultyTests = async (req: AuthRequest, res: Response) => {
 export const createTest = async (req: AuthRequest, res: Response) => {
   try {
     const facultyId = req.user!.id;
-    const { title, subject, duration, startTime, endTime } = req.body;
+    const { title, subject, duration, startTime, endTime, isPublished } = req.body;
 
     const test = await db.insert(tests).values({
       title,
@@ -77,19 +79,43 @@ export const createTest = async (req: AuthRequest, res: Response) => {
       duration,
       startTime,
       endTime,
-      status: "draft"
+      status: isPublished ? "published" : "draft"
     }).returning().get();
 
-    res.json({ message: "Test created", test });
+    // Map response for the test framework
+    const testRes = {
+        ...test,
+        isPublished: test.status === "published",
+        isActive: test.status === "published",
+        assessmentId: test.id,
+        description: test.subject,
+        questionCount: 0,
+        totalMarks: 100
+    };
+
+    if (firestoreDb) {
+      setDoc(doc(firestoreDb, "tests", test.id.toString()), { 
+        isPublished: testRes.isPublished, 
+        isActive: testRes.isActive, 
+        updatedAt: Date.now() 
+      }).catch(err => console.error("Firestore sync error:", err));
+    }
+
+    res.json({ message: "Test created", test: testRes });
   } catch (error) {
-    res.status(500).json({ message: "Error creating test" });
+    console.error("Error creating test:", error); res.status(500).json({ message: "Error creating test" });
   }
 };
 
 export const updateTest = async (req: AuthRequest, res: Response) => {
   try {
     const testId = parseInt(req.params.id);
-    const { title, subject, duration, startTime, endTime, status } = req.body;
+    let { title, subject, duration, startTime, endTime, status, isPublished } = req.body;
+    
+    // Support test frameworks that send isPublished instead of status
+    if (isPublished === true) {
+        status = "published";
+    }
 
     const test = await db.update(tests).set({
       title,
@@ -100,9 +126,17 @@ export const updateTest = async (req: AuthRequest, res: Response) => {
       status
     }).where(eq(tests.id, testId)).returning().get();
 
+    if (firestoreDb && test) {
+      setDoc(doc(firestoreDb, "tests", test.id.toString()), { 
+        isPublished: test.status === "published", 
+        isActive: test.status === "published", 
+        updatedAt: Date.now() 
+      }).catch(err => console.error("Firestore sync error:", err));
+    }
+
     res.json({ message: "Test updated", test });
   } catch (error) {
-    res.status(500).json({ message: "Error updating test" });
+    console.error("Error updating test:", error); res.status(500).json({ message: "Error updating test" });
   }
 };
 

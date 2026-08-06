@@ -21,8 +21,11 @@ export default function CodingPage() {
   const [language, setLanguage] = useState("Python");
   const [code, setCode] = useState("");
   const [runResult, setRunResult] = useState<any>(null);
+  const [submitResult, setSubmitResult] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [isFinishingAssessment, setIsFinishingAssessment] = useState(false);
+  const [showLanguageConfirm, setShowLanguageConfirm] = useState<{lang: string, template: string} | null>(null);
 
   // Anti-Malpractice State
   const [violationCount, setViolationCount] = useState(0);
@@ -31,6 +34,11 @@ export default function CodingPage() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isFullScreenRef = useRef(false);
   const [multiDeviceAlert, setMultiDeviceAlert] = useState(false);
+
+  // Modal States
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [pendingLanguage, setPendingLanguage] = useState<string | null>(null);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const sessionToken = localStorage.getItem("sessionToken") || "";
@@ -81,6 +89,14 @@ export default function CodingPage() {
     const interval = setInterval(checkSessionActive, 20000);
     return () => clearInterval(interval);
   }, [question, sessionToken]);
+
+  // Malpractice limit enforcement
+  useEffect(() => {
+    if (violationCount >= 10 && !isFinishingAssessment) {
+      setAlertMessage("You have exceeded the maximum malpractice limit. Your assessment has been automatically submitted.");
+      performSubmitAssessment(true);
+    }
+  }, [violationCount]);
 
   // Tab Switch & Visibility & Focus Monitoring with Windows 7 / Legacy Browser Polyfills
   useEffect(() => {
@@ -333,32 +349,79 @@ export default function CodingPage() {
     setRunResult(null);
   };
   
-  const submitAssessment = async (isAutoSubmit: boolean | React.MouseEvent = false) => {
-    const auto = isAutoSubmit === true;
-    if (!auto) {
-      if (!window.confirm("Are you sure you want to submit the entire assessment? You will not be able to return.")) return;
+  const exitFullscreenSafely = async () => {
+    const doc = document as any;
+    if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
+      try {
+        if (doc.exitFullscreen) {
+          await doc.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        } else if (doc.mozCancelFullScreen) {
+          doc.mozCancelFullScreen();
+        } else if (doc.msExitFullscreen) {
+          doc.msExitFullscreen();
+        }
+        // Wait a tiny bit for UI to settle
+        await new Promise(res => setTimeout(res, 100));
+      } catch (err) {
+        console.error("Failed to exit fullscreen:", err);
+      }
     }
+  };
+
+  const performSubmitAssessment = async (auto: boolean) => {
+    if (isFinishingAssessment) return;
+    setIsFinishingAssessment(true);
     
-    // Auto-submit current code if available
+    // Evaluate all questions
     try {
-      if (activeQuestionId && code && code.trim() !== "") {
-        await api.post("/student/submit", {
-          question_id: activeQuestionId,
-          source_code: code,
-          language
-        });
+      for (const q of questions) {
+        const qCode = q.id === activeQuestionId ? code : codes[q.id];
+        const qLang = q.id === activeQuestionId ? language : languages[q.id];
+        
+        // If code has been modified from template, submit it
+        if (qCode && qCode.trim() !== "" && qCode !== generateTemplate(qLang, q)) {
+          await api.post("/student/submit", {
+            question_id: q.id,
+            source_code: qCode,
+            language: qLang
+          }).catch(e => console.error("Failed to auto-submit", q.id, e));
+        }
       }
     } catch (e) {
-      console.error("Failed to auto-submit current code", e);
+      console.error("Failed during auto-evaluation", e);
     }
 
     try {
       await api.post(`/student/tests/${testId}/finish`);
-      alert(auto ? "Time is up! Assessment submitted automatically." : "Assessment submitted successfully!");
-      navigate("/student");
+      setShowSubmitConfirm(false);
+      await exitFullscreenSafely();
+      
+      if (auto) {
+        if (violationCount >= 10) {
+          setAlertMessage("You have exceeded the maximum malpractice limit. Your assessment has been automatically submitted.");
+        } else {
+          setAlertMessage("Time is up! Assessment submitted automatically.");
+        }
+      } else {
+        setAlertMessage("Assessment submitted successfully.");
+      }
+      setTimeout(() => navigate("/student"), 1500); // Navigate after a short delay
     } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.message || "Failed to submit assessment.");
+      console.error("Submit error:", err);
+      setAlertMessage("Submission failed. Please try again.");
+      setIsFinishingAssessment(false);
+    }
+  };
+
+  const submitAssessment = (isAutoSubmit: boolean | React.MouseEvent = false) => {
+    if (isFinishingAssessment) return;
+    const auto = isAutoSubmit === true;
+    if (!auto) {
+      setShowSubmitConfirm(true);
+    } else {
+      performSubmitAssessment(true);
     }
   };
 
@@ -370,12 +433,7 @@ export default function CodingPage() {
     const isModified = (c: string, t: string) => c.replace(/\s+/g, '') !== t.replace(/\s+/g, '');
 
     if (code.trim() !== "" && isModified(code, oldTemplate)) {
-      if (window.confirm("Changing language will replace your current code with the template. Continue?")) {
-        setLanguage(newLang);
-        setCode(template);
-        setLanguages(prev => ({...prev, [activeQuestionId]: newLang}));
-        setCodes(prev => ({...prev, [activeQuestionId]: template}));
-      }
+      setShowLanguageConfirm({ lang: newLang, template });
     } else {
       setLanguage(newLang);
       setCode(template);
@@ -402,16 +460,18 @@ export default function CodingPage() {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    setSubmitResult(null);
+    setRunResult(null);
     try {
       const res = await api.post("/student/submit", {
         question_id: activeQuestionId,
         source_code: code,
         language
       });
-      alert(`Code submitted successfully! Final Verdict: ${res.data.finalStatus}`);
+      setSubmitResult(res.data);
       setQuestionStatuses(prev => ({...prev, [activeQuestionId]: res.data.finalStatus === "Accepted" ? "Accepted" : "Submitted"}));
     } catch (err) {
-      alert("Failed to submit code.");
+      setAlertMessage("Failed to submit code.");
     }
     setIsSubmitting(false);
   };
@@ -442,7 +502,10 @@ export default function CodingPage() {
       {/* Top Navbar */}
       <header className="h-14 border-b border-gray-200 px-6 flex items-center justify-between bg-white shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/student")} className="text-gray-500 hover:text-gray-900 mr-2">
+          <button onClick={async () => {
+            await exitFullscreenSafely();
+            navigate("/student");
+          }} className="text-gray-500 hover:text-gray-900 mr-2">
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold">C</div>
@@ -662,9 +725,38 @@ export default function CodingPage() {
                       {runResult.passed ? 'Passed' : 'Failed'}
                     </span>
                   )}
+                  {submitResult && (
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${submitResult.finalStatus === 'Accepted' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {submitResult.finalStatus}
+                    </span>
+                  )}
                 </div>
-                <div className="flex-1 bg-white border border-gray-200 rounded p-2 text-sm font-mono overflow-auto whitespace-pre-wrap text-slate-700">
-                  {runResult ? (
+                <div className="flex-1 bg-white border border-gray-200 rounded p-4 text-sm font-mono overflow-auto whitespace-pre-wrap text-slate-700">
+                  {submitResult ? (
+                    <div className="flex flex-col gap-3">
+                      <div className={`text-lg font-bold ${submitResult.finalStatus === 'Accepted' ? 'text-green-600' : 'text-red-600'}`}>
+                        {submitResult.finalStatus}
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Passed</div>
+                          <div className="text-xl font-bold text-gray-800">{submitResult.passedCount} <span className="text-sm text-gray-400 font-normal">/ {submitResult.totalCount}</span></div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Score</div>
+                          <div className="text-xl font-bold text-gray-800">{submitResult.score} <span className="text-sm text-gray-400 font-normal">/ {submitResult.maxScore}</span></div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Execution Time</div>
+                          <div className="text-base font-bold text-gray-800">{(submitResult.time || 0).toFixed(3)}s</div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                          <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Memory</div>
+                          <div className="text-base font-bold text-gray-800">{submitResult.memory || 0} KB</div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : runResult ? (
                     <>
                       {runResult.compile_output && (
                         <div className="mb-2 text-red-600">
@@ -686,8 +778,14 @@ export default function CodingPage() {
                         <span className="font-bold text-gray-500">Your Output:</span><br/>
                         {runResult.stdout || "No output"}
                       </div>
+                      {(runResult.time || runResult.memory) && (
+                        <div className="mt-2 flex gap-4 text-xs text-gray-500">
+                          {runResult.time && <span>Time: {Number(runResult.time).toFixed(3)}s</span>}
+                          {runResult.memory && <span>Memory: {runResult.memory} KB</span>}
+                        </div>
+                      )}
                     </>
-                  ) : "Run the code to see output..."}
+                  ) : "Run or Submit the code to see output..."}
                 </div>
               </div>
             </div>
@@ -712,6 +810,90 @@ export default function CodingPage() {
           </div>
         </div>
       </div>
+
+      {/* Submit Assessment Confirm Modal */}
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Submit Assessment</h3>
+            <p className="text-slate-600 mb-6">
+              Are you sure you want to submit your assessment? Once submitted, you cannot continue the exam.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                disabled={isFinishingAssessment}
+                onClick={() => setShowSubmitConfirm(false)}
+                className="px-4 py-2 font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button 
+                disabled={isFinishingAssessment}
+                onClick={() => {
+                  performSubmitAssessment(false);
+                }}
+                className="px-4 py-2 font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isFinishingAssessment ? "Submitting..." : "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Language Change Confirm Modal */}
+      {showLanguageConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Change Language</h3>
+            <p className="text-slate-600 mb-6">
+              Changing language will replace your current code with the template. Continue?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setShowLanguageConfirm(null)}
+                className="px-4 py-2 font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  const newLang = showLanguageConfirm.lang;
+                  const template = showLanguageConfirm.template;
+                  setLanguage(newLang);
+                  setCode(template);
+                  setLanguages(prev => ({...prev, [activeQuestionId]: newLang}));
+                  setCodes(prev => ({...prev, [activeQuestionId]: template}));
+                  setShowLanguageConfirm(null);
+                }}
+                className="px-4 py-2 font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Modal */}
+      {alertMessage && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Notification</h3>
+            <p className="text-slate-600 mb-6">
+              {alertMessage}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setAlertMessage(null)}
+                className="px-4 py-2 font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
