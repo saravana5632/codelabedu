@@ -62,8 +62,12 @@ export const getTestAnalytics = async (req: AuthRequest, res: Response) => {
       studentId: submissions.studentId,
       language: submissions.language,
       status: submissions.status,
-      submittedAt: submissions.submittedAt
-    }).from(submissions).where(inArray(submissions.questionId, qIds)).all();
+      submittedAt: submissions.submittedAt,
+      rollNumber: students.rollNumber,
+      studentName: students.name
+    }).from(submissions)
+      .innerJoin(students, eq(submissions.studentId, students.id))
+      .where(inArray(submissions.questionId, qIds)).all();
     
     const allSubs = rawSubs.map(s => {
       const isPass = s.status.toLowerCase().includes('accepted') || s.status.toLowerCase().includes('pass');

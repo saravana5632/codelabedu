@@ -28,7 +28,7 @@ export default function TestAnalytics() {
 
   const exportExcel = () => {
     const ws = XLSX.utils.json_to_sheet(data.submissions.map((s:any) => ({
-      'Roll Number': s.studentId,
+      'Roll Number': s.rollNumber,
       'Language': s.language,
       'Status': s.status,
       'Submitted At': new Date(s.submittedAt).toLocaleString()
@@ -40,7 +40,7 @@ export default function TestAnalytics() {
 
   const exportCSV = () => {
     const ws = XLSX.utils.json_to_sheet(data.submissions.map((s:any) => ({
-      'Roll Number': s.studentId,
+      'Roll Number': s.rollNumber,
       'Language': s.language,
       'Status': s.status,
       'Submitted At': new Date(s.submittedAt).toLocaleString()
@@ -60,7 +60,7 @@ export default function TestAnalytics() {
     const doc = new jsPDF();
     doc.text(`Test ${id} Submissions`, 14, 15);
     const tableData = data.submissions.map((s:any) => [
-      s.studentId, s.language, s.status, new Date(s.submittedAt).toLocaleString()
+      s.rollNumber, s.language, s.status, new Date(s.submittedAt).toLocaleString()
     ]);
     (doc as any).autoTable({
       head: [['Student ID', 'Language', 'Status', 'Submitted At']],
@@ -95,7 +95,7 @@ export default function TestAnalytics() {
   // Compute sorted and filtered performers
   const submissionsList = Array.isArray(data.submissions) ? data.submissions : [];
   const topPerformers = [...submissionsList]
-    .filter((s:any) => s.studentId && s.studentId.toLowerCase().includes(searchTerm.toLowerCase()))
+    .filter((s:any) => s.rollNumber?.toLowerCase().includes(searchTerm.toLowerCase()) || s.studentName?.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a:any, b:any) => {
       let comparison = 0;
       if (sortField === 'score') {
@@ -283,7 +283,7 @@ export default function TestAnalytics() {
                 topPerformers.slice(0, 10).map((sub:any, idx:number) => (
                   <tr key={sub.id}>
                     <td className="px-6 py-4">#{idx + 1}</td>
-                    <td className="px-6 py-4">{sub.studentId}</td>
+                    <td className="px-6 py-4">{sub.rollNumber} - {sub.studentName}</td>
                     <td className="px-6 py-4 font-semibold text-green-600">{sub.score || 0}</td>
                     <td className="px-6 py-4">{new Date(sub.submittedAt).toLocaleString()}</td>
                     <td className="px-6 py-4 text-orange-600">{sub.execTimeMs ? `${sub.execTimeMs}ms` : 'N/A'}</td>
@@ -319,7 +319,7 @@ export default function TestAnalytics() {
             <tbody className="divide-y divide-gray-200">
               {data.submissions.map((sub:any) => (
                 <tr key={sub.id}>
-                  <td className="px-6 py-4">{sub.studentId}</td>
+                  <td className="px-6 py-4">{sub.rollNumber} - {sub.studentName}</td>
                   <td className="px-6 py-4">{sub.language}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 text-xs rounded-full ${sub.status.toLowerCase().includes('pass') || sub.status.toLowerCase().includes('accept') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>

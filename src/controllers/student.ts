@@ -118,19 +118,12 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
-    let totalMarks = 0;
-    let questionTitles = [];
-    let combinedSolutions = [];
-    let allTestCasesPassed = 0;
-    let totalPossibleTestCases = payloadSubmissions.length * 2;
+    const webhookUrl = process.env.APPS_SCRIPT_WEBHOOK_URL;
 
     for (const sub of payloadSubmissions) {
       const { question_id, source_code, language, isAutoSubmit } = sub;
       const question = await db.select().from(questions).where(eq(questions.id, question_id)).get();
       if (!question) continue;
-
-      questionTitles.push(question.title);
-      combinedSolutions.push(`--- ${question.title} ---\n${source_code}\n`);
 
       const language_id = languageMap[language];
       let testCasesPassed = 0;
@@ -182,11 +175,8 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
         testCasesPassed = 0;
       }
 
-      allTestCasesPassed += testCasesPassed;
       const questionMarks = testCasesPassed * 25;
-      totalMarks += questionMarks;
-      
-      const verdict = testCasesPassed === 2 ? "Accepted" : testCasesPassed === 1 ? "Partial" : "Wrong Answer";
+      const verdict = testCasesPassed === 2 ? "PASSED" : testCasesPassed === 1 ? "PARTIAL" : "FAILED";
 
       await db.insert(submissions).values({
         studentId,
@@ -197,45 +187,38 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
         status: verdict,
         submittedAt: new Date().toISOString()
       }).execute();
-    }
 
-    let finalStatus = "FAILED";
-    if (allTestCasesPassed === totalPossibleTestCases && totalPossibleTestCases > 0) {
-      finalStatus = "PASSED";
-    } else if (allTestCasesPassed > 0) {
-      finalStatus = "PARTIAL";
-    }
+      // Log to Google Sheets
+      try {
+        const payload = {
+          rollNo: student.rollNumber,
+          name: student.name,
+          question: question.title,
+          solution: source_code,
+          status: verdict,
+          marks: questionMarks,
+          totalMarks: 100
+        };
 
-    // Log to Google Sheets
-    try {
-      const payload = {
-        rollNo: student.rollNumber,
-        name: student.name,
-        question: questionTitles.join(" + "),
-        solution: combinedSolutions.join("\n"),
-        status: finalStatus,
-        marks: totalMarks
-      };
-
-      if (!payload.rollNo || !payload.name || !payload.question || !payload.solution || !payload.status || typeof payload.marks !== 'number') {
-         console.error("Missing required fields in Google Sheets payload! Aborting sheet log.");
-      } else {
-        const webhookUrl = process.env.APPS_SCRIPT_WEBHOOK_URL;
-        if (webhookUrl) {
-          axios.post(webhookUrl, payload, {
-            headers: { 'Content-Type': 'application/json' }
-          }).then(response => {}).catch(async (err) => {
-            console.warn("Apps Script Web App first attempt failed, retrying once...", err.message);
-            try {
-              await axios.post(webhookUrl, payload, { headers: { 'Content-Type': 'application/json' } });
-            } catch (retryErr: any) {
-              console.error("Failed to append to Google Sheet via Apps Script after retry:", retryErr.message);
-            }
-          });
+        if (!payload.rollNo || !payload.name || !payload.question || !payload.solution || !payload.status || typeof payload.marks !== 'number') {
+           console.error("Missing required fields in Google Sheets payload! Aborting sheet log.");
+        } else {
+          if (webhookUrl) {
+            axios.post(webhookUrl, payload, {
+              headers: { 'Content-Type': 'application/json' }
+            }).then(response => {}).catch(async (err) => {
+              console.warn("Apps Script Web App first attempt failed, retrying once...", err.message);
+              try {
+                await axios.post(webhookUrl, payload, { headers: { 'Content-Type': 'application/json' } });
+              } catch (retryErr: any) {
+                console.error("Failed to append to Google Sheet via Apps Script after retry:", retryErr.message);
+              }
+            });
+          }
         }
+      } catch (sheetErr) {
+        console.error("Error preparing Apps Script data:", sheetErr);
       }
-    } catch (sheetErr) {
-      console.error("Error preparing Apps Script data:", sheetErr);
     }
 
     res.json({ message: "Code submitted successfully" });

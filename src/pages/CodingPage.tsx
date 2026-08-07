@@ -18,6 +18,8 @@ export default function CodingPage() {
   const [customInput, setCustomInput] = useState("");
   const [output, setOutput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedSolutions, setSubmittedSolutions] = useState<Record<number, boolean>>({});
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   
   const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -179,8 +181,11 @@ export default function CodingPage() {
           isAutoSubmit: true
         }))
       });
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      sessionStorage.removeItem(`selectedQuestions_${user.id}_${testId}`);
+      sessionStorage.setItem(`submitted_test_${user.id}_${testId}`, "true");
       alert("Test automatically submitted due to excessive malpractice violations.");
-      navigate("/student");
+      navigate("/student", { replace: true });
     } catch (err) {
       console.error("Auto-submit failed:", err);
       alert("Failed to auto-submit code. Please contact your instructor.");
@@ -207,17 +212,18 @@ export default function CodingPage() {
     }
   };
 
-  const handleRun = async () => {
-    setIsRunning(true);
+  const handleRun = async (isFinalSubmit: boolean = false) => {
+    setIsRunning(!isFinalSubmit);
+    if (isFinalSubmit) setIsSubmitting(true);
+    
     try {
       const q = questions[activeQIndex];
       const lang = languages[activeQIndex];
       const code = codes[activeQIndex];
-
       let outputText = "";
 
-      // 1. Evaluate Custom Input if provided
-      if (customInput && customInput.trim() !== "") {
+      // 1. Evaluate Custom Input if provided (only for Run Code)
+      if (!isFinalSubmit && customInput && customInput.trim() !== "") {
         const res = await api.post("/student/run", {
           question_id: q.id,
           source_code: code,
@@ -227,6 +233,7 @@ export default function CodingPage() {
         
         outputText += "CUSTOM INPUT RESULT:\n";
         outputText += "Input:\n" + customInput + "\n\n";
+
         if (res.data.status?.id === 5) {
           outputText += "TIME LIMIT EXCEEDED\n\n";
         } else if (res.data.compile_output) {
@@ -255,7 +262,6 @@ export default function CodingPage() {
 
       let passedCount = 0;
       let totalCount = testCases.length;
-      let isError = false;
 
       for (let i = 0; i < testCases.length; i++) {
         const tc = testCases[i];
@@ -268,52 +274,66 @@ export default function CodingPage() {
         });
 
         if (res.data.status?.id === 5) {
-           outputText += `TIME LIMIT EXCEEDED\n\nResult: ERROR\n`;
-           isError = true;
-           break;
+           outputText += `Test Case ${i + 1}: TIME LIMIT EXCEEDED\nMarks: 0/25\n\n`;
         } else if (res.data.compile_output) {
-           outputText += `COMPILATION ERROR\n\n${res.data.compile_output}\n\nTest Cases Passed: 0/${totalCount}\nResult: ERROR\n`;
-           isError = true;
-           break;
+           outputText += `Test Case ${i + 1}: COMPILATION ERROR\nMarks: 0/25\n\n`;
         } else if (res.data.stderr) {
-           outputText += `RUNTIME ERROR\n\n${res.data.stderr}\n\nResult: ERROR\n`;
-           isError = true;
-           break;
+           outputText += `Test Case ${i + 1}: RUNTIME ERROR\nMarks: 0/25\n\n`;
         } else {
            const actualOut = (res.data.stdout || "").trim();
            const expectedOut = tc.expectedOutput.trim();
            
-           // Normalize comparison: ignore all whitespace variations
            const normalize = (str: string) => str.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim();
            const isPassed = normalize(actualOut) === normalize(expectedOut);
            
            if (isPassed) passedCount++;
-
-           outputText += `Test Case ${i + 1}: ${isPassed ? "PASSED" : "FAILED"}\n`;
+           
+           outputText += `Test Case ${i + 1}: ${isPassed ? "PASSED" : "FAILED"}\nMarks: ${isPassed ? "25" : "0"}/25\n\n`;
            outputText += `Input:\n${tc.input}\n\n`;
            outputText += `Expected Output:\n${tc.expectedOutput}\n\n`;
            outputText += `Your Output:\n${actualOut}\n\n`;
         }
       }
 
-      if (!isError && totalCount > 0) {
+      if (totalCount > 0) {
         outputText += `--------------------------------\n`;
-        outputText += `Test Cases Passed: ${passedCount}/${totalCount}\n`;
-        outputText += `Result: ${passedCount === totalCount ? "PASSED" : "FAILED"}\n`;
-      } else if (totalCount === 0) {
+        outputText += `Question Score: ${passedCount * 25}/${totalCount * 25}\n`;
+        outputText += `--------------------------------\n`;
+      } else {
         if (outputText === "") {
            outputText = "No test cases found. Please use Custom Input to test your code.";
         }
       }
 
       setOutput(outputText.trim());
+      
+      if (isFinalSubmit) {
+        setSubmittedSolutions(prev => ({ ...prev, [activeQIndex]: true }));
+      }
     } catch (err) {
       setOutput("Error connecting to compiler service.");
     }
+
     setIsRunning(false);
+    if (isFinalSubmit) setIsSubmitting(false);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmitSolution = () => {
+    handleRun(true);
+  };
+
+  const handleSubmitAssessment = async () => {
+    if (questions.length !== 2) {
+      alert("Invalid assessment state: exactly 2 questions must be selected.");
+      return;
+    }
+    
+    if (!submittedSolutions[0] || !submittedSolutions[1]) {
+      alert("Please 'Submit Solution' for both questions before submitting the assessment.");
+      setShowSubmitModal(false);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await api.post("/student/submit", {
@@ -324,13 +344,19 @@ export default function CodingPage() {
           isAutoSubmit: false
         }))
       });
-      alert(`Test submitted successfully!`);
-      navigate("/student");
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      sessionStorage.removeItem(`selectedQuestions_${user.id}_${testId}`);
+      sessionStorage.setItem(`submitted_test_${user.id}_${testId}`, "true");
+      alert(`Assessment Submitted Successfully\n\nYour assessment has been finalized.`);
+      navigate("/student", { replace: true });
     } catch (err) {
-      alert("Failed to submit code.");
+      alert("Failed to submit assessment.");
     }
     setIsSubmitting(false);
+    setShowSubmitModal(false);
   };
+
+  
 
   const handleEditorDidMount = (editorInstance: any) => {
     editorInstance.focus();
@@ -467,6 +493,12 @@ export default function CodingPage() {
               <span className="text-sm font-mono font-bold text-red-600">--:--</span>
             </div>
           </div>
+          <button
+            onClick={() => setShowSubmitModal(true)}
+            className="ml-4 px-4 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 transition-colors rounded shadow-sm"
+          >
+            Submit Assessment
+          </button>
         </div>
       </header>
 
@@ -613,23 +645,53 @@ export default function CodingPage() {
             {/* Bottom Buttons */}
             <div className="h-14 px-6 border-t border-gray-200 flex items-center justify-end gap-3 shrink-0">
               <button
-                onClick={handleRun}
-                disabled={isRunning}
+                onClick={() => handleRun(false)}
+                disabled={isRunning || submittedSolutions[activeQIndex]}
                 className="px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition-colors border border-blue-100 rounded-md disabled:opacity-50"
               >
                 {isRunning ? "Running..." : "Run Code"}
               </button>
               <button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
+                onClick={handleSubmitSolution}
+                disabled={isSubmitting || submittedSolutions[activeQIndex]}
                 className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors rounded-md shadow-sm disabled:opacity-50"
               >
-                {isSubmitting ? "Submitting..." : "Submit Solution"}
+                {submittedSolutions[activeQIndex] ? "Solution Saved" : (isSubmitting ? "Evaluating..." : "Submit Solution")}
               </button>
             </div>
           </div>
         </div>
       </div>
+
+      {showSubmitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Submit Assessment?</h2>
+            <p className="text-gray-600 mb-4">Are you sure you want to submit your assessment?</p>
+            <p className="text-gray-600 mb-6">You have selected:<br/>
+              {questions.map(q => <span key={q.id}>• {q.title}<br/></span>)}
+              <br/>
+              Your final answers will be submitted and you will exit the test. You will not be able to continue after submission.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setShowSubmitModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 border border-gray-300 rounded"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSubmitAssessment}
+                disabled={isSubmitting}
+                className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50"
+              >
+                {isSubmitting ? "Submitting..." : "Confirm Submit"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

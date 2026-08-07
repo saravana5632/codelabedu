@@ -21,6 +21,12 @@ export default function TestSelectionPage() {
     }
 
     // If they already selected, maybe just redirect them?
+    const isSubmitted = sessionStorage.getItem(`submitted_test_${user.id}_${testId}`);
+    if (isSubmitted === "true") {
+      alert("You have already submitted this assessment.");
+      navigate("/student", { replace: true });
+      return;
+    }
     const existingSelection = sessionStorage.getItem(`selectedQuestions_${user.id}_${testId}`);
     if (existingSelection) {
       const parsed = JSON.parse(existingSelection);
