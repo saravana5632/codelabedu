@@ -6,7 +6,8 @@ export const students = sqliteTable('students', {
   name: text('name').notNull(),
   dob: text('dob').notNull(),
   department: text('department'),
-  year: integer('year')
+  year: integer('year'),
+  semester: integer('semester')
 });
 
 export const faculty = sqliteTable('faculty', {
@@ -37,6 +38,8 @@ export const questions = sqliteTable('questions', {
   outputFormat: text('output_format'),
   sampleInput: text('sample_input'),
   sampleOutput: text('sample_output'),
+  starterCode: text('starter_code', { mode: 'json' }),
+  driverCode: text('driver_code', { mode: 'json' }),
   notes: text('notes'),
   difficulty: text('difficulty', { enum: ['easy', 'medium', 'hard'] }).default('medium')
 });

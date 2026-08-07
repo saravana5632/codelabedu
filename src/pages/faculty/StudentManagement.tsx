@@ -15,7 +15,12 @@ export default function StudentManagement() {
     try {
       setLoading(true);
       const res = await api.get('/faculty/students');
-      setStudents(res.data);
+      if (Array.isArray(res.data)) {
+        setStudents(res.data);
+      } else {
+        console.error("Expected array but got:", res.data);
+        setStudents([]);
+      }
     } catch (error) {
       console.error("Error fetching students:", error);
     } finally {
@@ -68,6 +73,7 @@ export default function StudentManagement() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DOB</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Semester</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -96,11 +102,14 @@ export default function StudentManagement() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {student.year ? `Year ${student.year}` : '-'}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {student.semester ? `Sem ${student.semester}` : '-'}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-sm text-gray-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">
                       No students found matching your search.
                     </td>
                   </tr>

@@ -93,8 +93,9 @@ export default function TestAnalytics() {
   ];
 
   // Compute sorted and filtered performers
-  const topPerformers = [...data.submissions]
-    .filter((s:any) => s.studentId.toLowerCase().includes(searchTerm.toLowerCase()))
+  const submissionsList = Array.isArray(data.submissions) ? data.submissions : [];
+  const topPerformers = [...submissionsList]
+    .filter((s:any) => s.studentId && s.studentId.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a:any, b:any) => {
       let comparison = 0;
       if (sortField === 'score') {

@@ -19,8 +19,8 @@ export default function StudentDashboard() {
         api.get("/student/tests"),
         api.get("/student/submissions")
       ]);
-      setTests(testsRes.data);
-      setSubmissions(subsRes.data);
+      setTests(Array.isArray(testsRes.data) ? testsRes.data : []);
+      setSubmissions(Array.isArray(subsRes.data) ? subsRes.data : []);
     } catch (err) {
       if ((err as any).response?.status === 401) {
         navigate("/login");
@@ -65,7 +65,7 @@ export default function StudentDashboard() {
                   </div>
                 </div>
                 <button
-                  onClick={() => navigate(`/coding/${activeTest.id}`)}
+                  onClick={() => navigate(`/test/${activeTest.id}/selection`)}
                   className="inline-flex items-center gap-2 px-6 py-3 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
                 >
                   <PlayCircle className="w-5 h-5" />

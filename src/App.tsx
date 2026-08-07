@@ -13,6 +13,8 @@ import TestManagement from "./pages/faculty/TestManagement.tsx";
 import TestAnalytics from "./pages/faculty/TestAnalytics.tsx";
 import StudentManagement from "./pages/faculty/StudentManagement.tsx";
 
+import TestSelectionPage from "./pages/TestSelectionPage.tsx";
+
 export default function App() {
   return (
     <Router>
@@ -33,7 +35,8 @@ export default function App() {
           <Route path="settings" element={<div className="p-4">Settings Coming Soon</div>} />
         </Route>
 
-        <Route path="/coding/:questionId" element={<CodingPage />} />
+        <Route path="/test/:testId/selection" element={<TestSelectionPage />} />
+        <Route path="/test/:testId/solve" element={<CodingPage />} />
       </Routes>
     </Router>
   );

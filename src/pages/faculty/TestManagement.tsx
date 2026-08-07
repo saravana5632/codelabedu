@@ -24,7 +24,12 @@ export default function TestManagement() {
   const fetchTests = async () => {
     try {
       const res = await api.get("/faculty/tests");
-      setTests(res.data);
+      if (Array.isArray(res.data)) {
+        setTests(res.data);
+      } else {
+        console.error("Expected array but got:", res.data);
+        setTests([]);
+      }
     } catch (err) {
       console.error(err);
     }

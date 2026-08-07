@@ -1,15 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import api from "../lib/api.ts";
-import { Play, Send, RefreshCw, ChevronLeft } from "lucide-react";
+import { Play, Send, RefreshCw, ChevronLeft, AlertTriangle } from "lucide-react";
 
 export default function CodingPage() {
-  const { questionId } = useParams();
+  const { testId } = useParams();
   const navigate = useNavigate();
-  const [question, setQuestion] = useState<any>(null);
-  const [language, setLanguage] = useState("Python");
-  const [code, setCode] = useState("");
+  const [test, setTest] = useState<any>(null);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [activeQIndex, setActiveQIndex] = useState(0);
+
+  // State arrays for each selected question
+  const [languages, setLanguages] = useState<string[]>(["Python", "Python"]);
+  const [codes, setCodes] = useState<string[]>(["", ""]);
+  
   const [customInput, setCustomInput] = useState("");
   const [output, setOutput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,30 +22,291 @@ export default function CodingPage() {
   
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
-  useEffect(() => {
-    fetchQuestion();
-  }, [questionId]);
+  // Fullscreen and Malpractice State
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [malpracticeCount, setMalpracticeCount] = useState(() => {
+    return parseInt(sessionStorage.getItem(`malpractice_test_${user.id}_${testId}`) || "0", 10);
+  });
+  const [showWarning, setShowWarning] = useState(false);
+  const [isLockedOut, setIsLockedOut] = useState(false);
+  
+  // Use refs to access latest state inside event listeners without re-attaching
+  const codesRef = useRef(codes);
+  const languagesRef = useRef(languages);
+  const isLockedOutRef = useRef(isLockedOut);
+  const questionsRef = useRef(questions);
+  
+  useEffect(() => { codesRef.current = codes; }, [codes]);
+  useEffect(() => { languagesRef.current = languages; }, [languages]);
+  useEffect(() => { isLockedOutRef.current = isLockedOut; }, [isLockedOut]);
+  useEffect(() => { questionsRef.current = questions; }, [questions]);
 
-  const fetchQuestion = async () => {
+  useEffect(() => {
+    fetchTestAndQuestions();
+  }, [testId]);
+
+  const fetchTestAndQuestions = async () => {
     try {
-      const res = await api.get(`/student/questions/${questionId}`);
-      setQuestion(res.data);
-      // Set some boilerplate code based on language
+      const selection = sessionStorage.getItem(`selectedQuestions_${user.id}_${testId}`);
+      if (!selection) {
+        navigate(`/test/${testId}/selection`);
+        return;
+      }
+      const selectedIds = JSON.parse(selection);
+      if (selectedIds.length !== 2) {
+        navigate(`/test/${testId}/selection`);
+        return;
+      }
+
+      const res = await api.get(`/student/tests/${testId}`);
+      setTest(res.data);
+      
+      // Filter to only the selected questions
+      const selectedQs = res.data.questions.filter((q: any) => selectedIds.includes(q.id));
+      if (selectedQs.length !== 2) {
+        navigate(`/test/${testId}/selection`);
+        return;
+      }
+      
+      // Fetch full details for the selected questions
+      const q1Res = await api.get(`/student/questions/${selectedQs[0].id}`);
+      const q2Res = await api.get(`/student/questions/${selectedQs[1].id}`);
+      const q1 = q1Res.data;
+      const q2 = q2Res.data;
+      setQuestions([q1, q2]);
+      
+      const getStarter = (q: any, lang: string) => {
+        if (!q.starterCode) return "";
+        const parsed = typeof q.starterCode === 'string' ? JSON.parse(q.starterCode) : q.starterCode;
+        return parsed[lang] || "";
+      };
+      
+      setCodes([getStarter(q1, "Python"), getStarter(q2, "Python")]);
     } catch (err) {
       console.error(err);
       navigate("/student");
     }
   };
 
+  // Malpractice Detection Listeners
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setIsFullscreen(false);
+        recordMalpractice("Exited fullscreen mode.");
+      } else {
+        setIsFullscreen(true);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && document.fullscreenElement) {
+        recordMalpractice("Switched tab or window.");
+      }
+    };
+
+    const handleBlur = () => {
+      if (document.fullscreenElement) {
+        recordMalpractice("Lost focus on the test window.");
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+
+    // Initial check
+    if (document.fullscreenElement) {
+      setIsFullscreen(true);
+    }
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [testId]);
+
+  const recordMalpractice = (reason: string) => {
+    if (isLockedOutRef.current) return;
+    
+    setMalpracticeCount(prev => {
+      const nextCount = prev + 1;
+      sessionStorage.setItem(`malpractice_test_${user.id}_${testId}`, nextCount.toString());
+      return nextCount;
+    });
+  };
+
+  // Run side effects when malpracticeCount changes
+  useEffect(() => {
+    if (malpracticeCount > 0) {
+      if (malpracticeCount > 10 && !isLockedOutRef.current) {
+        handleAutoSubmit();
+      } else if (malpracticeCount <= 10 && !isLockedOutRef.current) {
+        setShowWarning(true);
+      }
+    }
+  }, [malpracticeCount]);
+
+  const requestFullscreen = () => {
+    const el = document.documentElement;
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    }
+  };
+
+  const handleAutoSubmit = async () => {
+    setIsLockedOut(true);
+    isLockedOutRef.current = true;
+    setIsSubmitting(true);
+
+    if (questionsRef.current.length === 0) {
+      // Occurs if locked out on mount before fetch completes
+      alert("Test locked due to excessive malpractice violations.");
+      navigate("/student");
+      return;
+    }
+
+    try {
+      // Auto submit both questions in one request
+      await api.post("/student/submit", {
+        submissions: questionsRef.current.map((q, i) => ({
+          question_id: q.id,
+          source_code: codesRef.current[i],
+          language: languagesRef.current[i],
+          isAutoSubmit: true
+        }))
+      });
+      alert("Test automatically submitted due to excessive malpractice violations.");
+      navigate("/student");
+    } catch (err) {
+      console.error("Auto-submit failed:", err);
+      alert("Failed to auto-submit code. Please contact your instructor.");
+      navigate("/student");
+    }
+  };
+
+  const updateCode = (newCode: string) => {
+    const newCodes = [...codes];
+    newCodes[activeQIndex] = newCode;
+    setCodes(newCodes);
+  };
+
+  const updateLanguage = (newLang: string) => {
+    const newLangs = [...languages];
+    newLangs[activeQIndex] = newLang;
+    setLanguages(newLangs);
+    
+    // Also update the starter code for that language
+    const q = questions[activeQIndex];
+    if (q && q.starterCode) {
+      const parsed = typeof q.starterCode === 'string' ? JSON.parse(q.starterCode) : q.starterCode;
+      updateCode(parsed[newLang] || "");
+    }
+  };
+
   const handleRun = async () => {
     setIsRunning(true);
     try {
-      const res = await api.post("/student/run", {
-        source_code: code,
-        language,
-        input: customInput
-      });
-      setOutput(res.data.stdout || res.data.stderr || res.data.compile_output || "Execution completed.");
+      const q = questions[activeQIndex];
+      const lang = languages[activeQIndex];
+      const code = codes[activeQIndex];
+
+      let outputText = "";
+
+      // 1. Evaluate Custom Input if provided
+      if (customInput && customInput.trim() !== "") {
+        const res = await api.post("/student/run", {
+          question_id: q.id,
+          source_code: code,
+          language: lang,
+          input: customInput
+        });
+        
+        outputText += "CUSTOM INPUT RESULT:\n";
+        outputText += "Input:\n" + customInput + "\n\n";
+        if (res.data.status?.id === 5) {
+          outputText += "TIME LIMIT EXCEEDED\n\n";
+        } else if (res.data.compile_output) {
+          outputText += "COMPILATION ERROR\n" + res.data.compile_output + "\n\n";
+        } else if (res.data.stderr) {
+          outputText += "RUNTIME ERROR\n" + res.data.stderr + "\n\n";
+        } else {
+          outputText += "Output:\n" + (res.data.stdout || "Execution completed without output.") + "\n\n";
+        }
+        outputText += "--------------------------------\n\n";
+      }
+
+      // 2. Evaluate Problem's Test Cases
+      const testCases = [];
+      if (q.sampleInput || q.sampleOutput) {
+        testCases.push({
+          input: q.sampleInput || "",
+          expectedOutput: q.sampleOutput || ""
+        });
+        // Add a second demo test case just like backend scoring
+        testCases.push({
+          input: q.sampleInput || "",
+          expectedOutput: q.sampleOutput || ""
+        });
+      }
+
+      let passedCount = 0;
+      let totalCount = testCases.length;
+      let isError = false;
+
+      for (let i = 0; i < testCases.length; i++) {
+        const tc = testCases[i];
+        
+        const res = await api.post("/student/run", {
+          question_id: q.id,
+          source_code: code,
+          language: lang,
+          input: tc.input
+        });
+
+        if (res.data.status?.id === 5) {
+           outputText += `TIME LIMIT EXCEEDED\n\nResult: ERROR\n`;
+           isError = true;
+           break;
+        } else if (res.data.compile_output) {
+           outputText += `COMPILATION ERROR\n\n${res.data.compile_output}\n\nTest Cases Passed: 0/${totalCount}\nResult: ERROR\n`;
+           isError = true;
+           break;
+        } else if (res.data.stderr) {
+           outputText += `RUNTIME ERROR\n\n${res.data.stderr}\n\nResult: ERROR\n`;
+           isError = true;
+           break;
+        } else {
+           const actualOut = (res.data.stdout || "").trim();
+           const expectedOut = tc.expectedOutput.trim();
+           
+           // Normalize comparison: ignore all whitespace variations
+           const normalize = (str: string) => str.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim();
+           const isPassed = normalize(actualOut) === normalize(expectedOut);
+           
+           if (isPassed) passedCount++;
+
+           outputText += `Test Case ${i + 1}: ${isPassed ? "PASSED" : "FAILED"}\n`;
+           outputText += `Input:\n${tc.input}\n\n`;
+           outputText += `Expected Output:\n${tc.expectedOutput}\n\n`;
+           outputText += `Your Output:\n${actualOut}\n\n`;
+        }
+      }
+
+      if (!isError && totalCount > 0) {
+        outputText += `--------------------------------\n`;
+        outputText += `Test Cases Passed: ${passedCount}/${totalCount}\n`;
+        outputText += `Result: ${passedCount === totalCount ? "PASSED" : "FAILED"}\n`;
+      } else if (totalCount === 0) {
+        if (outputText === "") {
+           outputText = "No test cases found. Please use Custom Input to test your code.";
+        }
+      }
+
+      setOutput(outputText.trim());
     } catch (err) {
       setOutput("Error connecting to compiler service.");
     }
@@ -51,13 +317,14 @@ export default function CodingPage() {
     setIsSubmitting(true);
     try {
       await api.post("/student/submit", {
-        question_id: parseInt(questionId || "0"),
-        source_code: code,
-        language,
-        output: "Submitted successfully",
-        status: "Submitted"
+        submissions: questions.map((q, i) => ({
+          question_id: q.id,
+          source_code: codes[i],
+          language: languages[i],
+          isAutoSubmit: false
+        }))
       });
-      alert("Code submitted successfully!");
+      alert(`Test submitted successfully!`);
       navigate("/student");
     } catch (err) {
       alert("Failed to submit code.");
@@ -65,18 +332,117 @@ export default function CodingPage() {
     setIsSubmitting(false);
   };
 
-  if (!question) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  const handleEditorDidMount = (editorInstance: any) => {
+    editorInstance.focus();
+    const model = editorInstance.getModel();
+    if (!model) return;
+    
+    let targetLine = 1;
+    let targetCol = 1;
+    const lineCount = model.getLineCount();
+    
+    for (let i = lineCount; i >= 1; i--) {
+      const content = model.getLineContent(i);
+      if (content.trim() === "" && content.length > 0) {
+        targetLine = i;
+        targetCol = content.length + 1;
+        break;
+      }
+    }
+    
+    editorInstance.setPosition({ lineNumber: targetLine, column: targetCol });
+  };
+
+  if (questions.length !== 2) return <div className="p-8 text-center text-gray-500">Loading test...</div>;
+
+  const question = questions[activeQIndex];
+
+  if (isLockedOut) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50 p-6 z-50">
+        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md text-center">
+          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Test Terminated</h2>
+          <p className="text-gray-600 mb-6">
+            Your test was automatically submitted because you exceeded the allowed number of malpractice violations (tab switching, exiting fullscreen, etc.).
+          </p>
+          <button 
+            onClick={() => navigate("/student")}
+            className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isFullscreen) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50 p-6 z-50">
+        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Fullscreen Required</h2>
+          <p className="text-gray-600 mb-6">
+            This programming test must be taken in fullscreen mode. Any attempt to exit fullscreen, switch tabs, or lose focus will be recorded.
+          </p>
+          <button 
+            onClick={requestFullscreen}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm"
+          >
+            Enter Fullscreen & Start
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col bg-white text-slate-800 font-sans overflow-hidden">
+      {/* Warning Modal */}
+      {showWarning && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Malpractice Warning</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              You have switched tabs, exited fullscreen, or lost focus. This is a violation of test rules.
+            </p>
+            <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md font-semibold text-sm mb-4">
+              Warning {malpracticeCount} / 10
+            </div>
+            <button 
+              onClick={() => {
+                setShowWarning(false);
+                requestFullscreen();
+              }}
+              className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+            >
+              Acknowledge & Resume
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Navbar */}
       <header className="h-14 border-b border-gray-200 px-6 flex items-center justify-between bg-white shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/student")} className="text-gray-500 hover:text-gray-900 mr-2">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold">C</div>
-          <span className="font-semibold text-lg tracking-tight">CodeLab <span className="text-gray-400 font-normal ml-2">| {question.title}</span></span>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate("/student")} className="text-gray-500 hover:text-gray-900 mr-2">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <span className="font-semibold text-lg tracking-tight">CodeLab <span className="text-gray-400 font-normal ml-2">| {test?.title}</span></span>
+          </div>
+          <div className="flex bg-gray-100 p-1 rounded-md">
+            {questions.map((q, idx) => (
+              <button
+                key={q.id}
+                onClick={() => setActiveQIndex(idx)}
+                className={`px-4 py-1 text-sm font-medium rounded ${activeQIndex === idx ? 'bg-white shadow-sm text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Q{idx + 1}: {q.title}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-6">
           <div className="flex flex-col items-end">
@@ -85,6 +451,17 @@ export default function CodingPage() {
           </div>
           <div className="h-10 w-[1px] bg-gray-200"></div>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={() => {
+                sessionStorage.removeItem(`malpractice_test_${user.id}_${testId}`);
+                setMalpracticeCount(0);
+                setIsLockedOut(false);
+                setShowWarning(false);
+              }}
+              className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded border border-red-200 hover:bg-red-100 transition-colors mr-2"
+            >
+              Reset Malpractice (Test)
+            </button>
             <div className="flex flex-col items-end">
               <span className="text-xs text-gray-500 uppercase font-semibold">Time Remaining</span>
               <span className="text-sm font-mono font-bold text-red-600">--:--</span>
@@ -161,8 +538,8 @@ export default function CodingPage() {
             <div className="flex items-center gap-2">
               <label className="text-[10px] font-bold text-gray-400 uppercase">Language</label>
               <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                value={languages[activeQIndex]}
+                onChange={(e) => updateLanguage(e.target.value)}
                 className="bg-white border border-gray-200 text-sm rounded px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="C">C</option>
@@ -174,7 +551,15 @@ export default function CodingPage() {
             </div>
             <div className="flex gap-2">
               <button 
-                onClick={() => setCode("")}
+                onClick={() => {
+                  const q = questions[activeQIndex];
+                  if (q && q.starterCode) {
+                    const parsed = typeof q.starterCode === 'string' ? JSON.parse(q.starterCode) : q.starterCode;
+                    updateCode(parsed[languages[activeQIndex]] || "");
+                  } else {
+                    updateCode("");
+                  }
+                }}
                 className="text-xs text-gray-500 hover:text-gray-900 flex items-center gap-1 p-1.5 hover:bg-gray-100 rounded transition-colors"
               >
                 <RefreshCw className="w-4 h-4" /> Reset Code
@@ -186,9 +571,10 @@ export default function CodingPage() {
           <div className="flex-1 bg-white relative font-mono text-sm leading-relaxed overflow-hidden border-b border-gray-200">
             <Editor
               height="100%"
-              language={language.toLowerCase()}
-              value={code}
-              onChange={(value) => setCode(value || "")}
+              language={languages[activeQIndex].toLowerCase()}
+              value={codes[activeQIndex]}
+              onChange={(value) => updateCode(value || "")}
+              onMount={handleEditorDidMount}
               theme="vs-light"
               options={{
                 minimap: { enabled: false },
