@@ -12,6 +12,7 @@ export const login = async (req: Request, res: Response) => {
     const { loginType, rollNumber, dob, email, password } = req.body;
 
     if (loginType === 'student') {
+      if (!rollNumber || !dob) return res.status(401).json({ message: "Invalid roll number or date of birth" });
       let student = await db.select().from(students).where(
         and(eq(students.rollNumber, rollNumber), eq(students.dob, dob))
       ).get();
@@ -24,6 +25,7 @@ export const login = async (req: Request, res: Response) => {
       return res.json({ token, user: { id: student.id, role: "student", name: student.name, rollNumber: student.rollNumber } });
     } else if (loginType === 'faculty') {
       // Mock faculty auth, auto-create if not exists
+      if (!email || !password) return res.status(401).json({ message: "Invalid email or password" });
       let fac = await db.select().from(faculty).where(
         and(eq(faculty.email, email), eq(faculty.password, password))
       ).get();

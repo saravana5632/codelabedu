@@ -11,39 +11,46 @@ export default function TestSelectionPage() {
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
-    
-    // Check if locked out
-    const malpracticeCount = parseInt(sessionStorage.getItem(`malpractice_test_${user.id}_${testId}`) || "0", 10);
-    if (malpracticeCount > 10) {
-      alert("You have been locked out of this test due to excessive malpractice violations.");
-      navigate("/student", { replace: true });
-      return;
-    }
-
-    // If they already selected, maybe just redirect them?
-    const isSubmitted = sessionStorage.getItem(`submitted_test_${user.id}_${testId}`);
-    if (isSubmitted === "true") {
-      alert("You have already submitted this assessment.");
-      navigate("/student", { replace: true });
-      return;
-    }
-    const existingSelection = sessionStorage.getItem(`selectedQuestions_${user.id}_${testId}`);
-    if (existingSelection) {
-      const parsed = JSON.parse(existingSelection);
-      if (parsed.length === 2) {
-        navigate(`/test/${testId}/solve`, { replace: true });
-        return;
-      }
-    }
-    fetchTestDetails();
+    fetchTestDetails(user);
   }, [testId, navigate]);
 
-  const fetchTestDetails = async () => {
+  const fetchTestDetails = async (user: any) => {
     try {
       const res = await api.get(`/student/tests/${testId}`);
       setTest(res.data);
-    } catch (err) {
-      console.error(err);
+      
+      // If the client thinks it was submitted, but backend says it's available, 
+      // this means a backend reset occurred. We must clear ALL stale local state.
+      const wasStaleSubmitted = sessionStorage.getItem(`submitted_test_${user.id}_${testId}`) === "true";
+      if (wasStaleSubmitted) {
+        sessionStorage.removeItem(`submitted_test_${user.id}_${testId}`);
+        sessionStorage.removeItem(`selectedQuestions_${user.id}_${testId}`);
+        sessionStorage.removeItem(`malpractice_test_${user.id}_${testId}`);
+      }
+
+      // Check if locked out (only check after potential stale state clear)
+      const malpracticeCount = parseInt(sessionStorage.getItem(`malpractice_test_${user.id}_${testId}`) || "0", 10);
+      if (malpracticeCount > 10) {
+        alert("You have been locked out of this test due to excessive malpractice violations.");
+        navigate("/student", { replace: true });
+        return;
+      }
+
+      const existingSelection = sessionStorage.getItem(`selectedQuestions_${user.id}_${testId}`);
+      if (existingSelection) {
+        const parsed = JSON.parse(existingSelection);
+        if (parsed.length === 2) {
+          navigate(`/test/${testId}/solve`, { replace: true });
+          return;
+        }
+      }
+    } catch (err: any) {
+      if (err.response?.status === 403 && err.response?.data?.completed) {
+        alert("You have already submitted this test.");
+        sessionStorage.setItem(`submitted_test_${user.id}_${testId}`, "true");
+      } else {
+        console.error(err);
+      }
       navigate("/student");
     }
   };

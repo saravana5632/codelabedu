@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
-import { createServer as createViteServer } from "vite";
+
 import { setupRoutes } from "./src/routes.js";
 import { db } from "./src/db/index.js";
 
@@ -17,6 +17,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -31,7 +32,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, "0.0.0.0", (err) => { if (err) { console.error(err); process.exit(1); }
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

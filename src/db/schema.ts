@@ -55,6 +55,13 @@ export const submissions = sqliteTable('submissions', {
   submittedAt: text('submitted_at').notNull()
 });
 
+export const testCompletions = sqliteTable('test_completions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').references(() => students.id).notNull(),
+  testId: integer('test_id').references(() => tests.id).notNull(),
+  completedAt: text('completed_at').notNull()
+});
+
 export const testAnalytics = sqliteTable('test_analytics', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   testId: integer('test_id').references(() => tests.id).notNull(),

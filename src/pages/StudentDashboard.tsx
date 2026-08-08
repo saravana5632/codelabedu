@@ -5,7 +5,7 @@ import { LogOut, PlayCircle, CheckCircle } from "lucide-react";
 
 export default function StudentDashboard() {
   const [tests, setTests] = useState<any[]>([]);
-  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [completedTests, setCompletedTests] = useState<any[]>([]);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
@@ -15,12 +15,9 @@ export default function StudentDashboard() {
 
   const fetchData = async () => {
     try {
-      const [testsRes, subsRes] = await Promise.all([
-        api.get("/student/tests"),
-        api.get("/student/submissions")
-      ]);
-      setTests(Array.isArray(testsRes.data) ? testsRes.data : []);
-      setSubmissions(Array.isArray(subsRes.data) ? subsRes.data : []);
+      const testsRes = await api.get("/student/tests");
+      setTests(Array.isArray(testsRes.data?.available) ? testsRes.data.available : (Array.isArray(testsRes.data) ? testsRes.data : []));
+      setCompletedTests(Array.isArray(testsRes.data?.completed) ? testsRes.data.completed : []);
     } catch (err) {
       if ((err as any).response?.status === 401) {
         navigate("/login");
@@ -81,29 +78,27 @@ export default function StudentDashboard() {
         </div>
 
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Completed Tests / Submissions</h2>
-          {submissions.length > 0 ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Completed Tests</h2>
+          {completedTests.length > 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
               <ul className="divide-y divide-gray-200">
-                {submissions.map((sub, idx) => (
+                {completedTests.map((t, idx) => (
                   <li key={idx} className="p-4 sm:px-6 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-900">Submission #{sub.id}</p>
-                      <p className="text-xs text-gray-500 mt-1">Language: {sub.language}</p>
+                      <p className="text-sm font-medium text-gray-900">{t.title}</p>
+                      <p className="text-xs text-gray-500 mt-1">Subject: {t.subject}</p>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-600">
-                      {new Date(sub.submittedAt).toLocaleString()}
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                        Completed
+                      </span>
                       <CheckCircle className="w-5 h-5 text-green-500 ml-2" />
                     </div>
                   </li>
                 ))}
               </ul>
             </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500 text-sm">
-              You haven't submitted any tests yet.
-            </div>
-          )}
+          ) : null}
         </div>
       </main>
     </div>

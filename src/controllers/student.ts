@@ -1,14 +1,74 @@
 import { Response } from "express";
 import { db } from "../db/index.js";
-import { tests, questions, submissions, students } from "../db/schema.js";
+import { tests, questions, submissions, students, testCompletions } from "../db/schema.js";
 import { eq, desc, and } from "drizzle-orm";
 import { AuthRequest } from "../middleware/authMiddleware.js";
 import axios from "axios";
 
+function validateAlgorithm(code: string, questionTitle: string) {
+    const normalized = code.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, '').toLowerCase();
+    
+    if (/arrays\.sort|collections\.sort|\.sort\(|\bqsort\(|\bsorted\(/i.test(normalized)) {
+        return { isValid: false, detected: "Built-in Sort", required: questionTitle };
+    }
+
+    const titleLower = questionTitle.toLowerCase();
+    
+    const hasMergeWord = /merge/.test(normalized);
+    const hasPivotWord = /pivot|partition/.test(normalized);
+    
+    const hasRecursion = /([a-z0-9_]+)\s*\([^)]*\)[\s\S]*?\1\s*\(/i.test(normalized);
+    const hasMidCalc = /\+\s*[a-z0-9_]+\s*\)\s*\/\s*2|>>\s*1/.test(normalized) || /mid/.test(normalized);
+    const hasSwap = /=\s*[a-z0-9_\[\]]+\s*;\s*[a-z0-9_\[\]]+\s*=\s*[a-z0-9_\[\]]+\s*;\s*[a-z0-9_\[\]]+\s*=/i.test(normalized) || /swap/.test(normalized) || /\[[a-z0-9_]+\],\s*\[[a-z0-9_]+\]\s*=\s*\[[a-z0-9_]+\],\s*\[[a-z0-9_]+\]/.test(normalized);
+    const hasTwoPointerMergeLoop = /while\s*\([^)]+(<|<=)[^)]+(&&|and)[^)]+(<|<=)[^)]+\)/.test(normalized) || /while\s*[a-z0-9_]+\s*<\s*[a-z0-9_]+\s*and\s*[a-z0-9_]+\s*<\s*[a-z0-9_]+/.test(normalized);
+
+    let detected = "Unknown";
+    
+    if (hasPivotWord || (hasSwap && hasRecursion && !hasMergeWord && !hasTwoPointerMergeLoop)) {
+        detected = "Quick Sort";
+    } else if (hasMergeWord || (hasRecursion && hasMidCalc && hasTwoPointerMergeLoop) || hasTwoPointerMergeLoop) {
+        detected = "Merge Sort";
+    } else if (hasMidCalc && !hasSwap && !hasTwoPointerMergeLoop) {
+        detected = "Binary Search";
+    }
+
+    if (titleLower.includes("merge sort")) {
+        if (detected === "Merge Sort" || (hasTwoPointerMergeLoop && !hasPivotWord)) {
+             return { isValid: true, detected: "Merge Sort", required: "Merge Sort" };
+        }
+        return { isValid: false, detected: detected, required: "Merge Sort" };
+    }
+
+    if (titleLower.includes("quick sort")) {
+        if (detected === "Quick Sort" || (hasSwap && hasRecursion && !hasMergeWord && !hasTwoPointerMergeLoop)) {
+             return { isValid: true, detected: "Quick Sort", required: "Quick Sort" };
+        }
+        return { isValid: false, detected: detected, required: "Quick Sort" };
+    }
+
+    if (titleLower.includes("binary search")) {
+        if (detected === "Binary Search" || (hasMidCalc && !hasSwap && !hasTwoPointerMergeLoop)) {
+             return { isValid: true, detected: "Binary Search", required: "Binary Search" };
+        }
+        return { isValid: false, detected: detected, required: "Binary Search" };
+    }
+
+    return { isValid: true, detected: "Unknown", required: "Unknown" };
+}
+
+
 export const getTests = async (req: AuthRequest, res: Response) => {
   try {
+    const studentId = req.user!.id;
     const allTests = await db.select().from(tests).where(eq(tests.status, "published")).orderBy(desc(tests.id)).all();
-    res.json(allTests);
+    
+    const completions = await db.select().from(testCompletions).where(eq(testCompletions.studentId, studentId)).all();
+    const completedIds = completions.map(c => c.testId);
+
+    const available = allTests.filter(t => !completedIds.includes(t.id));
+    const completed = allTests.filter(t => completedIds.includes(t.id));
+
+    res.json({ available, completed });
   } catch (error) {
     res.status(500).json({ message: "Error fetching tests" });
   }
@@ -16,9 +76,19 @@ export const getTests = async (req: AuthRequest, res: Response) => {
 
 export const getTestDetails = async (req: AuthRequest, res: Response) => {
   try {
+    const studentId = req.user!.id;
     const testId = parseInt(req.params.id);
     const test = await db.select().from(tests).where(eq(tests.id, testId)).get();
     if (!test) return res.status(404).json({ message: "Test not found" });
+
+    // Check if test is already completed
+    const completion = await db.select().from(testCompletions).where(and(
+      eq(testCompletions.studentId, studentId),
+      eq(testCompletions.testId, testId)
+    )).get();
+    if (completion) {
+      return res.status(403).json({ message: "You have already submitted this test.", completed: true });
+    }
 
     const testQuestions = await db.select({
       id: questions.id,
@@ -55,7 +125,7 @@ const languageMap: Record<string, number> = {
 
 export const runCode = async (req: AuthRequest, res: Response) => {
   try {
-    const { question_id, source_code, language, input } = req.body;
+    const { question_id, source_code = "", language, input } = req.body;
     const language_id = languageMap[language];
 
     if (!language_id) {
@@ -119,11 +189,18 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
     }
 
     const webhookUrl = process.env.APPS_SCRIPT_WEBHOOK_URL;
-
+    
+    let testIdForCompletion: number | null = null;
+    
+    // Process submissions
     for (const sub of payloadSubmissions) {
-      const { question_id, source_code, language, isAutoSubmit } = sub;
+      const { question_id, source_code = "", language, isAutoSubmit } = sub;
       const question = await db.select().from(questions).where(eq(questions.id, question_id)).get();
       if (!question) continue;
+      
+      if (!testIdForCompletion) {
+          testIdForCompletion = question.testId;
+      }
 
       const language_id = languageMap[language];
       let testCasesPassed = 0;
@@ -175,15 +252,26 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
         testCasesPassed = 0;
       }
 
-      const questionMarks = testCasesPassed * 25;
-      const verdict = testCasesPassed === 2 ? "PASSED" : testCasesPassed === 1 ? "PARTIAL" : "FAILED";
+      
+      let validation = validateAlgorithm(source_code || "", question.title);
+      
+      
+      let questionMarks = testCasesPassed * 25;
+      if (!validation.isValid) {
+          questionMarks = 0;
+      }
+      
+      const verdict = questionMarks === 50 ? "PASSED" : (questionMarks === 25 ? "PARTIAL" : "FAILED");
+      
+      const finalOutputText = `Test Case 1: ${testCase1Result}\nTest Case 2: ${testCase2Result}\n\nAlgorithm Validation: ${validation.isValid ? "PASSED" : "FAILED"}\nRequired Algorithm: ${validation.required}\nDetected Algorithm: ${validation.detected}\n\nQuestion Score: ${questionMarks}/50`;
+
 
       await db.insert(submissions).values({
         studentId,
         questionId: question_id,
         language,
         sourceCode: source_code,
-        output: `Test Case 1: ${testCase1Result}, Test Case 2: ${testCase2Result}\nScore: ${questionMarks}/50`,
+        output: finalOutputText,
         status: verdict,
         submittedAt: new Date().toISOString()
       }).execute();
@@ -219,6 +307,22 @@ export const submitCode = async (req: AuthRequest, res: Response) => {
       } catch (sheetErr) {
         console.error("Error preparing Apps Script data:", sheetErr);
       }
+    }
+
+    if (testIdForCompletion) {
+        // Mark the test as completed for this student to prevent retakes
+        const existingCompletion = await db.select().from(testCompletions).where(and(
+            eq(testCompletions.studentId, studentId),
+            eq(testCompletions.testId, testIdForCompletion)
+        )).get();
+
+        if (!existingCompletion) {
+            await db.insert(testCompletions).values({
+                studentId,
+                testId: testIdForCompletion,
+                completedAt: new Date().toISOString()
+            }).execute();
+        }
     }
 
     res.json({ message: "Code submitted successfully" });
