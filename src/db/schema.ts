@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 export const students = sqliteTable('students', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -10,11 +11,10 @@ export const students = sqliteTable('students', {
   semester: integer('semester')
 });
 
-export const faculty = sqliteTable('faculty', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  email: text('email').notNull().unique(),
-  password: text('password').notNull()
+export const faculty = sqliteTable("faculty", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
 });
 
 export const tests = sqliteTable('tests', {
