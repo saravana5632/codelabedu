@@ -13,8 +13,11 @@ export const students = sqliteTable('students', {
 
 export const faculty = sqliteTable("faculty", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  email: text("email").notNull().unique(),
-  password: text("password").notNull(),
+  facultyId: text("faculty_id").notNull(),
+  name: text("name").notNull(),
+  department: text("department").notNull(),
+  email: text("email"),
+  password: text("password"),
 });
 
 export const tests = sqliteTable('tests', {

@@ -134,8 +134,8 @@ export const login = async (req: Request, res: Response) => {
         .from(faculty)
         .where(
           and(
-            eq(faculty.mail, facultyMail),
-            eq(faculty.password, facultyPassword)
+            eq(faculty.email, email),
+            eq(faculty.password, password)
           )
         )
         .get();
