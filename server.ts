@@ -7,10 +7,18 @@ import { db } from "./src/db/index.js";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
-  app.use(cors());
+  // Render frontend might be on a different origin in production
+  app.use(cors({
+    origin: process.env.FRONTEND_URL || "*",
+    credentials: true
+  }));
   app.use(express.json());
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", database: "connected" });
+  });
 
   // API Routes
   setupRoutes(app);
@@ -31,6 +39,15 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Centralized Error Handling Middleware
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[SERVER ERROR]", err.message || err);
+    res.status(err.status || 500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  });
 
   app.listen(PORT, "0.0.0.0", (err) => { if (err) { console.error(err); process.exit(1); }
     console.log(`Server running on http://localhost:${PORT}`);
