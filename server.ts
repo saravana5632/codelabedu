@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import express from "express";
 import path from "path";
 import cors from "cors";
@@ -16,8 +17,14 @@ async function startServer() {
   }));
   app.use(express.json());
 
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", database: "connected" });
+  app.get("/api/health", async (req, res) => {
+    try {
+      const result = await db.run(sql`SELECT 1`);
+      res.json({ status: "ok", database: "connected" });
+    } catch (error) {
+      console.error("[HEALTH] Database check failed:", error);
+      res.status(503).json({ status: "error", database: "disconnected" });
+    }
   });
 
   // API Routes
