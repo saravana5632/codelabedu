@@ -126,10 +126,28 @@ export default function CodingPage() {
       setIsFullscreen(true);
     }
 
+    // Page-wide copy/paste/cut ban (covers problem statement, console, etc. — not just the editor)
+    const blockClipboard = (e: ClipboardEvent) => {
+      e.preventDefault();
+      recordMalpractice(`Attempted ${e.type} outside the editor.`);
+    };
+    const blockContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    document.addEventListener("copy", blockClipboard, true);
+    document.addEventListener("cut", blockClipboard, true);
+    document.addEventListener("paste", blockClipboard, true);
+    document.addEventListener("contextmenu", blockContextMenu, true);
+
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", handleBlur);
+      document.removeEventListener("copy", blockClipboard, true);
+      document.removeEventListener("cut", blockClipboard, true);
+      document.removeEventListener("paste", blockClipboard, true);
+      document.removeEventListener("contextmenu", blockContextMenu, true);
     };
   }, [testId]);
 
@@ -146,9 +164,9 @@ export default function CodingPage() {
   // Run side effects when malpracticeCount changes
   useEffect(() => {
     if (malpracticeCount > 0) {
-      if (malpracticeCount > 10 && !isLockedOutRef.current) {
+      if (malpracticeCount > 3 && !isLockedOutRef.current) {
         handleAutoSubmit();
-      } else if (malpracticeCount <= 10 && !isLockedOutRef.current) {
+      } else if (malpracticeCount <= 3 && !isLockedOutRef.current) {
         setShowWarning(true);
       }
     }
@@ -423,6 +441,15 @@ export default function CodingPage() {
     }
     
     editorInstance.setPosition({ lineNumber: targetLine, column: targetCol });
+
+    // Disable Monaco's built-in right-click context menu (which has Copy/Paste/Cut entries)
+    editorInstance.updateOptions({ contextmenu: false });
+
+    // Actual copy/cut/paste blocking is handled once, page-wide, by the
+    // document-level "copy"/"cut"/"paste" capture listeners set up in the
+    // malpractice-detection useEffect below — that also covers the editor's
+    // internal textarea, so we don't duplicate the block (and the malpractice
+    // count) here.
   };
 
   if (questions.length !== 2) return <div className="p-8 text-center text-gray-500">Loading test...</div>;
@@ -480,7 +507,7 @@ export default function CodingPage() {
               You have switched tabs, exited fullscreen, or lost focus. This is a violation of test rules.
             </p>
             <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md font-semibold text-sm mb-4">
-              Warning {malpracticeCount} / 10
+              Warning {malpracticeCount} / 3
             </div>
             <button 
               onClick={() => {
@@ -523,17 +550,6 @@ export default function CodingPage() {
           </div>
           <div className="h-10 w-[1px] bg-gray-200"></div>
           <div className="flex items-center gap-2">
-            <button 
-              onClick={() => {
-                sessionStorage.removeItem(`malpractice_test_${user.id}_${testId}`);
-                setMalpracticeCount(0);
-                setIsLockedOut(false);
-                setShowWarning(false);
-              }}
-              className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded border border-red-200 hover:bg-red-100 transition-colors mr-2"
-            >
-              Reset Malpractice (Test)
-            </button>
             <div className="flex flex-col items-end">
               <span className="text-xs text-gray-500 uppercase font-semibold">Time Remaining</span>
               <span className="text-sm font-mono font-bold text-red-600">--:--</span>

@@ -30,7 +30,7 @@ export default function TestSelectionPage() {
 
       // Check if locked out (only check after potential stale state clear)
       const malpracticeCount = parseInt(sessionStorage.getItem(`malpractice_test_${user.id}_${testId}`) || "0", 10);
-      if (malpracticeCount > 10) {
+      if (malpracticeCount > 3) {
         alert("You have been locked out of this test due to excessive malpractice violations.");
         navigate("/student", { replace: true });
         return;
