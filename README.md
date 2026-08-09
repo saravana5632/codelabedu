@@ -1,122 +1,236 @@
-CodeLabEdu
+# CodeLabEdu
 
-A web-based online coding assessment and test management platform designed for students and faculty. Faculty can create and manage coding tests, while students can access questions, write and execute code, submit solutions, and receive evaluation results.
+> A web-based coding assessment platform for conducting programming tests, managing coding questions, evaluating student submissions, and analyzing test performance.
 
-Features
-Student
-Student login using roll number and date of birth
-View available coding tests
-View coding questions
-Online code editor
-Run code against test cases
-Submit solutions
-Automatic code evaluation
-View submission status and results
-Test completion tracking
-Copy-paste prevention during tests
-Faculty
-Faculty login
-Faculty dashboard
-Create and manage coding tests
-Add coding questions
-Update test details
-Publish, archive, duplicate, or delete tests
-View student submissions
-View test results
-Student management
-Test analytics
-Coding Evaluation
+## Overview
 
-The platform supports algorithm-based programming questions such as:
+**CodeLabEdu** is an online coding assessment system designed for educational institutions. It provides separate interfaces for **students** and **faculty**, allowing faculty members to create coding tests and students to solve programming problems through an online coding environment.
 
-Binary Search
-Merge Sort
-Quick Sort
+The platform supports automated code evaluation using test cases and provides faculty with submission results and analytics.
 
-Questions can be evaluated using multiple test cases, including hidden test cases, to verify the correctness of student submissions.
+---
 
-Technology Stack
-Frontend
-React
-TypeScript
-Vite
-HTML
-CSS
-Backend
-Node.js
-Express.js
-TypeScript
-Database
-Turso
-SQLite
-LibSQL
-Drizzle ORM
-Authentication
-JWT Authentication
-Role-based authorization
-Development Tools
-Git
-GitHub
-npm
-PowerShell
-System Architecture
-Student / Faculty
-       │
-       ▼
- React + TypeScript Frontend
-       │
-       │ REST API
-       ▼
- Node.js + Express Backend
-       │
-       ├── Authentication
-       ├── Student Management
-       ├── Test Management
-       ├── Question Management
-       ├── Code Execution
-       ├── Submission Evaluation
-       └── Analytics
-       │
-       ▼
- Drizzle ORM
-       │
-       ▼
- Turso / SQLite Database
-Database Structure
+## Features
+
+### Student Module
+
+* Student authentication using roll number and date of birth
+* View available coding tests
+* View coding questions
+* Online code editor
+* Run code during assessments
+* Submit solutions
+* Automated test-case evaluation
+* View submission status
+* Track completed tests
+* Copy-paste restrictions during tests
+
+### Faculty Module
+
+* Faculty authentication
+* Faculty dashboard
+* Create coding tests
+* Add coding questions
+* Update test details
+* Publish and manage tests
+* Archive tests
+* Duplicate existing tests
+* Delete tests
+* View student submissions
+* View test results
+* Manage student information
+* View test analytics
+
+### Coding Assessment
+
+The platform currently supports algorithm-based programming questions such as:
+
+* Binary Search
+* Merge Sort
+* Quick Sort
+
+Each coding problem can be evaluated against multiple test cases to determine whether the submitted solution is correct.
+
+---
+
+## Technology Stack
+
+| Category        | Technologies                    |
+| --------------- | ------------------------------- |
+| Frontend        | React, TypeScript, Vite         |
+| Backend         | Node.js, Express.js, TypeScript |
+| Database        | Turso, SQLite, LibSQL           |
+| ORM             | Drizzle ORM                     |
+| Authentication  | JWT                             |
+| Version Control | Git, GitHub                     |
+| Package Manager | npm                             |
+
+---
+
+## System Architecture
+
+```text
+                    CodeLabEdu
+                        |
+          +-------------+-------------+
+          |                           |
+       Student                      Faculty
+          |                           |
+          +-------------+-------------+
+                        |
+                 React Frontend
+                        |
+                    REST APIs
+                        |
+              Node.js + Express
+                        |
+        +---------------+---------------+
+        |               |               |
+ Authentication   Test Management   Evaluation
+        |               |               |
+        +---------------+---------------+
+                        |
+                   Drizzle ORM
+                        |
+                 Turso / SQLite
+```
+
+---
+
+## Main Modules
+
+### 1. Authentication
+
+Provides secure login and role-based access for:
+
+* Students
+* Faculty
+
+JWT tokens are used to authenticate protected API requests.
+
+### 2. Test Management
+
+Faculty members can:
+
+* Create tests
+* Update tests
+* Publish tests
+* Archive tests
+* Duplicate tests
+* Delete tests
+
+### 3. Question Management
+
+Faculty can add programming questions containing:
+
+* Question title
+* Description
+* Constraints
+* Input format
+* Output format
+* Sample input
+* Sample output
+* Difficulty level
+* Starter code
+* Driver code
+
+### 4. Code Evaluation
+
+Student submissions are evaluated against test cases.
+
+Example:
+
+```text
+Question: Binary Search
+
+Test Case 1    ✓ Passed
+Test Case 2    ✓ Passed
+Test Case 3    ✗ Failed
+Test Case 4    ✓ Passed
+Test Case 5    ✓ Passed
+
+Result: 4 / 5 Test Cases Passed
+```
+
+### 5. Analytics
+
+Faculty can view:
+
+* Total students
+* Test participation
+* Submission count
+* Pass/fail statistics
+* Average score
+* Highest score
+* Lowest score
+* Average execution time
+
+---
+
+## Database Schema
 
 The project uses the following major tables:
 
+```text
 students
+    |
+    +---- test_completions
+    |
+    +---- submissions
+              |
+              +---- submission_statistics
+
+
 faculty
-tests
-questions
-submissions
-test_completions
-test_analytics
-submission_statistics
-test_cases
-Relationship
-Faculty
-   │
-   └── Tests
-         │
-         └── Questions
-                │
-                └── Test Cases
-                       │
-                       └── Student Submissions
-API Endpoints
-Authentication
+    |
+    +---- tests
+              |
+              +---- questions
+              |       |
+              |       +---- test_cases
+              |
+              +---- test_analytics
+```
+
+### Main Tables
+
+| Table                   | Purpose                                  |
+| ----------------------- | ---------------------------------------- |
+| `students`              | Stores student information               |
+| `faculty`               | Stores faculty information               |
+| `tests`                 | Stores coding test information           |
+| `questions`             | Stores coding questions                  |
+| `test_cases`            | Stores test inputs and expected outputs  |
+| `submissions`           | Stores student code submissions          |
+| `submission_statistics` | Stores execution and scoring information |
+| `test_completions`      | Tracks completed tests                   |
+| `test_analytics`        | Stores test performance statistics       |
+
+---
+
+## API Endpoints
+
+### Authentication
+
+```text
 POST /api/login
 GET  /api/me
-Student
+```
+
+### Student APIs
+
+```text
 GET  /api/student/tests
 GET  /api/student/tests/:id
 GET  /api/student/questions/:id
 POST /api/student/run
 POST /api/student/submit
 GET  /api/student/submissions
-Faculty
+```
+
+### Faculty APIs
+
+```text
 GET    /api/faculty/students
 GET    /api/faculty/tests
 POST   /api/faculty/tests
@@ -126,115 +240,267 @@ GET    /api/faculty/tests/:id/check-submissions
 POST   /api/faculty/tests/:id/duplicate
 POST   /api/faculty/questions
 GET    /api/faculty/results/:testId
-Analytics
+```
+
+### Analytics APIs
+
+```text
 GET /api/analytics/dashboard
 GET /api/analytics/test/:testId
-Example Coding Test
-Binary Search
+```
 
-Students are given a sorted array and a target value.
+---
 
-The solution is evaluated using multiple test cases:
+## Project Structure
 
-Test Case 1 → PASS
-Test Case 2 → PASS
-Test Case 3 → PASS
-Test Case 4 → FAIL
-Test Case 5 → PASS
+```text
+Codelabedu/
+│
+├── src/
+│   │
+│   ├── controllers/
+│   │   ├── auth.ts
+│   │   ├── student.ts
+│   │   ├── faculty.ts
+│   │   └── analytics.ts
+│   │
+│   ├── db/
+│   │   ├── index.ts
+│   │   └── schema.ts
+│   │
+│   ├── middleware/
+│   │   └── authMiddleware.ts
+│   │
+│   ├── pages/
+│   │   ├── faculty/
+│   │   │   ├── DashboardHome.tsx
+│   │   │   ├── FacultyLayout.tsx
+│   │   │   ├── StudentManagement.tsx
+│   │   │   ├── TestAnalytics.tsx
+│   │   │   └── TestManagement.tsx
+│   │   │
+│   │   ├── CodingPage.tsx
+│   │   └── TestSelectionPage.tsx
+│   │
+│   ├── App.tsx
+│   └── routes.ts
+│
+├── data/
+│
+├── dist/
+│
+├── drizzle.config.ts
+├── package.json
+├── tsconfig.json
+└── README.md
+```
 
-The system calculates the final score based on the test cases passed.
+---
 
-Local Development
-1. Clone the repository
-git clone <YOUR_REPOSITORY_URL>
+## Getting Started
+
+### Prerequisites
+
+Make sure the following are installed:
+
+* Node.js
+* npm
+* Git
+
+### Clone the Repository
+
+```bash
+git clone <YOUR_GITHUB_REPOSITORY_URL>
 cd Codelabedu
-2. Install dependencies
+```
+
+### Install Dependencies
+
+```bash
 npm install
-3. Configure environment variables
+```
 
-Create a .env file:
+### Environment Variables
 
+Create a `.env` file in the project root:
+
+```env
 DATABASE_URL=your_turso_database_url
 DATABASE_AUTH_TOKEN=your_turso_auth_token
 JWT_SECRET=your_jwt_secret
-4. Start the development server
-npm run dev
+```
 
-The application will be available at the local development URL shown in the terminal.
+### Run Development Server
+
+```bash
+npm run dev
+```
+
+### Build the Project
+
+```bash
+npm run build
+```
+
+### Run Production Build
+
+```bash
+npm start
+```
+
+---
+
+## Database Setup
+
+The application uses **Turso** for the production database.
+
+Drizzle ORM is used to manage the database schema.
+
+```bash
+npx drizzle-kit push
+```
+
+---
+
+## Coding Questions
+
+The current assessment includes:
+
+| No. | Question      | Algorithm     |
+| --: | ------------- | ------------- |
+|   1 | Binary Search | Binary Search |
+|   2 | Merge Sort    | Merge Sort    |
+|   3 | Quick Sort    | Quick Sort    |
+
+Each question can contain multiple test cases for automated evaluation.
+
+---
+
+## Test Evaluation Flow
+
+```text
+Student selects test
+        ↓
+Student opens question
+        ↓
+Student writes code
+        ↓
+Student runs code
+        ↓
+Code is executed
+        ↓
+Output is compared with test cases
+        ↓
+Student submits solution
+        ↓
+All test cases are evaluated
+        ↓
+Score is calculated
+        ↓
+Submission result is stored
+        ↓
+Faculty can view results
+```
+
+---
+
+## Security
+
+CodeLabEdu implements:
+
+* JWT authentication
+* Role-based authorization
+* Protected API routes
+* Separate student and faculty access
+* Server-side submission processing
+* Test-case based evaluation
+* Copy-paste restrictions during assessments
+
+---
+
+## Deployment
+
+The application has been successfully deployed and is running in the production environment.
+
+The production setup uses:
+
+```text
+Frontend
+React + Vite
+
+Backend
+Node.js + Express
 
 Database
+Turso
 
-The project uses Turso as the production database.
+ORM
+Drizzle ORM
+```
 
-Drizzle ORM is used for database schema management and queries.
+---
 
-Typical database commands:
+## Future Enhancements
 
-npx drizzle-kit push
+* Support for additional programming languages
+* Advanced code execution sandbox
+* Real-time exam monitoring
+* Leaderboard
+* Plagiarism detection
+* Question bank
+* Automated question generation
+* Advanced performance analytics
+* Email notifications
+* More detailed student performance reports
 
-For local development, the project can also use a SQLite database.
+---
 
-Build
+## Contributing
 
-Create a production build:
+1. Clone the repository.
 
-npm run build
+```bash
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+```
 
-Run the production server:
+2. Create a feature branch.
 
-npm start
-Security
-
-The platform includes:
-
-JWT-based authentication
-Role-based access control
-Separate student and faculty permissions
-Protected API endpoints
-Hidden test-case evaluation
-Copy-paste restrictions during assessments
-Server-side submission evaluation
-
-Note: Client-side copy/paste prevention should be treated as an assessment-control feature rather than a complete security boundary. Code evaluation and test-case validation should remain server-side.
-
-User Roles
-Role	Responsibilities
-Student	Attend tests, solve coding problems, run and submit code
-Faculty	Create tests, add questions, manage students and evaluate results
-Admin/Database	Maintain application and database infrastructure
-Current Coding Problems
-#	Problem	Difficulty
-1	Binary Search	Easy
-2	Merge Sort	Medium
-3	Quick Sort	Medium
-Future Enhancements
-More programming languages
-Advanced code execution sandbox
-Real-time test monitoring
-Leaderboard
-Plagiarism detection
-Detailed performance analytics
-Question bank management
-Automated test generation
-More advanced faculty analytics
-Email/notification system
-Deployment
-
-The application is deployed and running successfully in its production environment.
-
-The production database is hosted using Turso, while the application uses a React frontend and Node.js/Express backend.
-
-Contributing
-Fork the repository.
-Create a new branch.
+```bash
 git checkout -b feature/your-feature
-Make your changes.
-Commit your changes.
-git add .
-git commit -m "Add your feature"
-Push the branch.
-git push origin feature/your-feature
-Create a Pull Request.
-License
+```
 
-This project is developed for educational and academic purposes.
+3. Make your changes.
+
+4. Stage the changes.
+
+```bash
+git add .
+```
+
+5. Commit the changes.
+
+```bash
+git commit -m "Add your feature"
+```
+
+6. Push the branch.
+
+```bash
+git push origin feature/your-feature
+```
+
+7. Create a Pull Request.
+
+---
+
+## License
+
+This project is developed for **educational and academic purposes**.
+
+---
+
+## CodeLabEdu
+
+**Online Coding Assessment & Test Management Platform**
+
+Built with **React, TypeScript, Node.js, Express, Drizzle ORM, SQLite, and Turso**.
