@@ -1,171 +1,207 @@
 import { Response } from "express";
 import { db } from "../db/index.js";
-import { tests, questions, submissions, students, submissionStatistics, testAnalytics } from "../db/schema.js";
-import { eq, desc, inArray } from "drizzle-orm";
+import {
+  tests,
+  questions,
+  submissions,
+  students,
+  submissionStatistics,
+  testAnalytics
+} from "../db/schema.js";
+import { eq, desc, inArray, and } from "drizzle-orm";
 import { AuthRequest } from "../middleware/authMiddleware.js";
 
-export const getAllStudents = async (req: AuthRequest, res: Response) => {
+// ==========================================
+// GET ALL STUDENTS
+// ==========================================
+
+export const getAllStudents = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
-    const allStudents = await db.select().from(students).all();
-    res.json(allStudents);
+    const allStudents = await db
+      .select()
+      .from(students)
+      .all();
+
+    return res.json(allStudents);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching students" });
+    console.error("Get students error:", error);
+
+    return res.status(500).json({
+      message: "Error fetching students"
+    });
   }
 };
 
-export const getFacultyTests = async (req: AuthRequest, res: Response) => {
+// ==========================================
+// GET FACULTY TESTS
+// ==========================================
+
+export const getFacultyTests = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const facultyId = req.user!.id;
-    const allTests = await db.select().from(tests).where(eq(tests.facultyId, facultyId)).orderBy(desc(tests.id)).all();
-    res.json(allTests);
+
+    const allTests = await db
+      .select()
+      .from(tests)
+      .where(eq(tests.facultyId, facultyId))
+      .orderBy(desc(tests.id))
+      .all();
+
+    return res.json(allTests);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching tests" });
+    console.error("Get faculty tests error:", error);
+
+    return res.status(500).json({
+      message: "Error fetching tests"
+    });
   }
 };
 
-export const createTest = async (req: AuthRequest, res: Response) => {
+// ==========================================
+// CREATE TEST
+// ==========================================
+
+export const createTest = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const facultyId = req.user!.id;
-    const { title, subject, duration, startTime, endTime } = req.body;
 
-    const test = await db.insert(tests).values({
+    const {
       title,
       subject,
-      facultyId,
       duration,
       startTime,
-      endTime,
-      status: "draft"
-    }).returning().get();
+      endTime
+    } = req.body;
 
-    res.json({ message: "Test created", test });
-  } catch (error) {
-    res.status(500).json({ message: "Error creating test" });
+    if (
+      !title ||
+      !subject ||
+      duration === undefined ||
+      !startTime ||
+      !endTime
+    ) {
+      return res.status(400).json({
+        message: "All test fields are required"
+      });
+    }
+
+    const test = await db
+      .insert(tests)
+      .values({
+        title,
+        subject,
+        facultyId,
+        duration: Number(duration),
+        startTime,
+        endTime,
+        status: "draft"
+      })
+      .returning()
+      .get();
+
+    console.log("[TEST CREATED]", test);
+
+    return res.status(201).json({
+      message: "Test created",
+      test
+    });
+  } catch (error: any) {
+    console.error("Create test error:", error);
+
+    return res.status(500).json({
+      message: "Error creating test",
+      error: error.message
+    });
   }
 };
 
-export const updateTest = async (req: AuthRequest, res: Response) => {
-  try {
-    const testId = parseInt(req.params.id);
-    const { title, subject, duration, startTime, endTime, status } = req.body;
+// ==========================================
+// UPDATE TEST
+// ==========================================
 
-    const test = await db.update(tests).set({
+export const updateTest = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const testId = Number(req.params.id);
+    const facultyId = req.user!.id;
+
+    const {
       title,
       subject,
       duration,
       startTime,
       endTime,
       status
-    }).where(eq(tests.id, testId)).returning().get();
+    } = req.body;
 
-    res.json({ message: "Test updated", test });
-  } catch (error) {
-    res.status(500).json({ message: "Error updating test" });
-  }
-};
+    const existingTest = await db
+      .select()
+      .from(tests)
+      .where(
+        and(
+          eq(tests.id, testId),
+          eq(tests.facultyId, facultyId)
+        )
+      )
+      .get();
 
-export const checkTestSubmissions = async (req: AuthRequest, res: Response) => {
-  try {
-    const testId = parseInt(req.params.id);
-    const testQs = await db.select({ id: questions.id }).from(questions).where(eq(questions.testId, testId)).all();
-    const qIds = testQs.map(q => q.id);
-    if (qIds.length === 0) return res.json({ hasSubmissions: false });
-    
-    const subs = await db.select({ id: submissions.id }).from(submissions).where(inArray(submissions.questionId, qIds)).limit(1).all();
-    res.json({ hasSubmissions: subs.length > 0 });
-  } catch (error) {
-    res.status(500).json({ message: "Error checking submissions" });
-  }
-};
-
-export const deleteTest = async (req: AuthRequest, res: Response) => {
-  try {
-    const testId = parseInt(req.params.id);
-    const { action } = req.body; // 'archive' or 'delete'
-
-    const testQuestions = await db.select({ id: questions.id }).from(questions).where(eq(questions.testId, testId)).all();
-    const qIds = testQuestions.map(q => q.id);
-
-    // SQLite doesn't natively support easy nested deletes in a single command via drizzile-orm yet without extra code,
-    // so we handle it based on action.
-    if (action === 'archive') {
-      await db.update(tests).set({ status: 'archived' }).where(eq(tests.id, testId)).execute();
-      return res.json({ message: "Test archived successfully" });
+    if (!existingTest) {
+      return res.status(404).json({
+        message: "Test not found"
+      });
     }
 
-    if (action === 'delete') {
-      if (qIds.length > 0) {
-        // Find if any submissions exist
-        const subs = await db.select({ id: submissions.id }).from(submissions).where(inArray(submissions.questionId, qIds)).all();
-        const subIds = subs.map(s => s.id);
-        
-        if (subIds.length > 0) {
-          await db.delete(submissionStatistics).where(inArray(submissionStatistics.submissionId, subIds)).execute();
-          await db.delete(submissions).where(inArray(submissions.questionId, qIds)).execute();
-        }
-        await db.delete(questions).where(eq(questions.testId, testId)).execute();
-      }
-      
-      const analytics = await db.select({ id: testAnalytics.id }).from(testAnalytics).where(eq(testAnalytics.testId, testId)).all();
-      if (analytics.length > 0) {
-        await db.delete(testAnalytics).where(eq(testAnalytics.testId, testId)).execute();
-      }
-      
-      await db.delete(tests).where(eq(tests.id, testId)).execute();
-      return res.json({ message: "Test permanently deleted" });
-    }
+    const test = await db
+      .update(tests)
+      .set({
+        title,
+        subject,
+        duration: Number(duration),
+        startTime,
+        endTime,
+        status
+      })
+      .where(eq(tests.id, testId))
+      .returning()
+      .get();
 
-    res.status(400).json({ message: "Invalid action" });
-  } catch (error) {
-    res.status(500).json({ message: "Error deleting test" });
+    return res.json({
+      message: "Test updated",
+      test
+    });
+  } catch (error: any) {
+    console.error("Update test error:", error);
+
+    return res.status(500).json({
+      message: "Error updating test",
+      error: error.message
+    });
   }
 };
 
-export const duplicateTest = async (req: AuthRequest, res: Response) => {
+// ==========================================
+// CREATE QUESTION
+// ==========================================
+
+export const createQuestion = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
-    const testId = parseInt(req.params.id);
     const facultyId = req.user!.id;
 
-    const originalTest = await db.select().from(tests).where(eq(tests.id, testId)).get();
-    if (!originalTest) return res.status(404).json({ message: "Test not found" });
-
-    const newTest = await db.insert(tests).values({
-      title: originalTest.title + " (Copy)",
-      subject: originalTest.subject,
-      facultyId,
-      duration: originalTest.duration,
-      startTime: originalTest.startTime,
-      endTime: originalTest.endTime,
-      status: "draft"
-    }).returning().get();
-
-    const originalQuestions = await db.select().from(questions).where(eq(questions.testId, testId)).all();
-    for (const q of originalQuestions) {
-      await db.insert(questions).values({
-        testId: newTest.id,
-        title: q.title,
-        description: q.description,
-        constraints: q.constraints,
-        inputFormat: q.inputFormat,
-        outputFormat: q.outputFormat,
-        sampleInput: q.sampleInput,
-        sampleOutput: q.sampleOutput,
-        notes: q.notes,
-        difficulty: q.difficulty
-      }).execute();
-    }
-
-    res.json({ message: "Test duplicated", test: newTest });
-  } catch (error) {
-    res.status(500).json({ message: "Error duplicating test" });
-  }
-};
-
-export const createQuestion = async (req: AuthRequest, res: Response) => {
-  try {
-    const { testId, title, description, constraints, inputFormat, outputFormat, sampleInput, sampleOutput, difficulty } = req.body;
-
-    const question = await db.insert(questions).values({
+    const {
       testId,
       title,
       description,
@@ -174,46 +210,419 @@ export const createQuestion = async (req: AuthRequest, res: Response) => {
       outputFormat,
       sampleInput,
       sampleOutput,
+      starterCode,
+      driverCode,
+      notes,
       difficulty
-    }).returning().get();
+    } = req.body;
 
-    res.json({ message: "Question added", question });
-  } catch (error) {
-    res.status(500).json({ message: "Error adding question" });
+    if (!testId || !title || !description) {
+      return res.status(400).json({
+        message: "testId, title and description are required"
+      });
+    }
+
+    // Make sure the test belongs to this faculty
+    const test = await db
+      .select()
+      .from(tests)
+      .where(
+        and(
+          eq(tests.id, Number(testId)),
+          eq(tests.facultyId, facultyId)
+        )
+      )
+      .get();
+
+    if (!test) {
+      return res.status(404).json({
+        message: "Test not found or unauthorized"
+      });
+    }
+
+    const question = await db
+      .insert(questions)
+      .values({
+        testId: Number(testId),
+        title,
+        description,
+        constraints: constraints || null,
+        inputFormat: inputFormat || null,
+        outputFormat: outputFormat || null,
+        sampleInput: sampleInput || null,
+        sampleOutput: sampleOutput || null,
+        starterCode: starterCode || null,
+        driverCode: driverCode || null,
+        notes: notes || null,
+        difficulty: difficulty || "medium"
+      })
+      .returning()
+      .get();
+
+    console.log("[QUESTION CREATED]", question);
+
+    return res.status(201).json({
+      message: "Question added",
+      question
+    });
+  } catch (error: any) {
+    console.error("Create question error:", error);
+
+    return res.status(500).json({
+      message: "Error adding question",
+      error: error.message
+    });
   }
 };
 
-export const getTestResults = async (req: AuthRequest, res: Response) => {
+// ==========================================
+// GET QUESTIONS FOR A TEST
+// ==========================================
+
+export const getTestQuestions = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
-    const testId = parseInt(req.params.testId);
-    
-    // Get all questions for the test
-    const testQuestions = await db.select({ id: questions.id }).from(questions).where(eq(questions.testId, testId)).all();
+    const testId = Number(req.params.id);
+    const facultyId = req.user!.id;
+
+    if (!testId) {
+      return res.status(400).json({
+        message: "Invalid test ID"
+      });
+    }
+
+    // Verify test belongs to faculty
+    const test = await db
+      .select()
+      .from(tests)
+      .where(
+        and(
+          eq(tests.id, testId),
+          eq(tests.facultyId, facultyId)
+        )
+      )
+      .get();
+
+    if (!test) {
+      return res.status(404).json({
+        message: "Test not found or unauthorized"
+      });
+    }
+
+    const testQuestions = await db
+      .select()
+      .from(questions)
+      .where(eq(questions.testId, testId))
+      .orderBy(questions.id)
+      .all();
+
+    console.log(
+      `[QUESTIONS] Test ${testId}: ${testQuestions.length} questions`
+    );
+
+    return res.json(testQuestions);
+  } catch (error: any) {
+    console.error("Get questions error:", error);
+
+    return res.status(500).json({
+      message: "Error fetching questions",
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// CHECK TEST SUBMISSIONS
+// ==========================================
+
+export const checkTestSubmissions = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const testId = Number(req.params.id);
+
+    const testQs = await db
+      .select({ id: questions.id })
+      .from(questions)
+      .where(eq(questions.testId, testId))
+      .all();
+
+    const qIds = testQs.map(q => q.id);
+
+    if (qIds.length === 0) {
+      return res.json({
+        hasSubmissions: false
+      });
+    }
+
+    const subs = await db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(inArray(submissions.questionId, qIds))
+      .limit(1)
+      .all();
+
+    return res.json({
+      hasSubmissions: subs.length > 0
+    });
+  } catch (error) {
+    console.error("Check submissions error:", error);
+
+    return res.status(500).json({
+      message: "Error checking submissions"
+    });
+  }
+};
+
+// ==========================================
+// DELETE / ARCHIVE TEST
+// ==========================================
+
+export const deleteTest = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const testId = Number(req.params.id);
+    const facultyId = req.user!.id;
+    const { action } = req.body;
+
+    const test = await db
+      .select()
+      .from(tests)
+      .where(
+        and(
+          eq(tests.id, testId),
+          eq(tests.facultyId, facultyId)
+        )
+      )
+      .get();
+
+    if (!test) {
+      return res.status(404).json({
+        message: "Test not found"
+      });
+    }
+
+    if (action === "archive") {
+      await db
+        .update(tests)
+        .set({
+          status: "archived"
+        })
+        .where(eq(tests.id, testId))
+        .execute();
+
+      return res.json({
+        message: "Test archived successfully"
+      });
+    }
+
+    if (action === "delete") {
+      const testQuestions = await db
+        .select({ id: questions.id })
+        .from(questions)
+        .where(eq(questions.testId, testId))
+        .all();
+
+      const qIds = testQuestions.map(q => q.id);
+
+      if (qIds.length > 0) {
+        const subs = await db
+          .select({ id: submissions.id })
+          .from(submissions)
+          .where(inArray(submissions.questionId, qIds))
+          .all();
+
+        const subIds = subs.map(s => s.id);
+
+        if (subIds.length > 0) {
+          await db
+            .delete(submissionStatistics)
+            .where(
+              inArray(
+                submissionStatistics.submissionId,
+                subIds
+              )
+            )
+            .execute();
+
+          await db
+            .delete(submissions)
+            .where(
+              inArray(submissions.questionId, qIds)
+            )
+            .execute();
+        }
+
+        await db
+          .delete(questions)
+          .where(eq(questions.testId, testId))
+          .execute();
+      }
+
+      await db
+        .delete(testAnalytics)
+        .where(eq(testAnalytics.testId, testId))
+        .execute();
+
+      await db
+        .delete(tests)
+        .where(eq(tests.id, testId))
+        .execute();
+
+      return res.json({
+        message: "Test permanently deleted"
+      });
+    }
+
+    return res.status(400).json({
+      message: "Invalid action"
+    });
+  } catch (error: any) {
+    console.error("Delete test error:", error);
+
+    return res.status(500).json({
+      message: "Error deleting test",
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// DUPLICATE TEST
+// ==========================================
+
+export const duplicateTest = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const testId = Number(req.params.id);
+    const facultyId = req.user!.id;
+
+    const originalTest = await db
+      .select()
+      .from(tests)
+      .where(eq(tests.id, testId))
+      .get();
+
+    if (!originalTest) {
+      return res.status(404).json({
+        message: "Test not found"
+      });
+    }
+
+    const newTest = await db
+      .insert(tests)
+      .values({
+        title: originalTest.title + " (Copy)",
+        subject: originalTest.subject,
+        facultyId,
+        duration: originalTest.duration,
+        startTime: originalTest.startTime,
+        endTime: originalTest.endTime,
+        status: "draft"
+      })
+      .returning()
+      .get();
+
+    const originalQuestions = await db
+      .select()
+      .from(questions)
+      .where(eq(questions.testId, testId))
+      .all();
+
+    for (const q of originalQuestions) {
+      await db
+        .insert(questions)
+        .values({
+          testId: newTest.id,
+          title: q.title,
+          description: q.description,
+          constraints: q.constraints,
+          inputFormat: q.inputFormat,
+          outputFormat: q.outputFormat,
+          sampleInput: q.sampleInput,
+          sampleOutput: q.sampleOutput,
+          starterCode: q.starterCode,
+          driverCode: q.driverCode,
+          notes: q.notes,
+          difficulty: q.difficulty
+        })
+        .execute();
+    }
+
+    return res.status(201).json({
+      message: "Test duplicated",
+      test: newTest
+    });
+  } catch (error: any) {
+    console.error("Duplicate test error:", error);
+
+    return res.status(500).json({
+      message: "Error duplicating test",
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// GET TEST RESULTS
+// ==========================================
+
+export const getTestResults = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const testId = Number(req.params.testId);
+
+    const testQuestions = await db
+      .select({
+        id: questions.id
+      })
+      .from(questions)
+      .where(eq(questions.testId, testId))
+      .all();
+
     const questionIds = testQuestions.map(q => q.id);
 
     if (questionIds.length === 0) {
       return res.json([]);
     }
 
-    // Since SQLite driver doesn't support 'inArray' in some older drizzle versions cleanly without setup, let's fetch all and filter
-    const allSubmissions = await db.select({
-      id: submissions.id,
-      language: submissions.language,
-      status: submissions.status,
-      submittedAt: submissions.submittedAt,
-      sourceCode: submissions.sourceCode,
-      questionId: submissions.questionId,
-      studentName: students.name,
-      studentRoll: students.rollNumber
-    }).from(submissions)
-      .innerJoin(students, eq(submissions.studentId, students.id))
+    const allSubmissions = await db
+      .select({
+        id: submissions.id,
+        language: submissions.language,
+        status: submissions.status,
+        submittedAt: submissions.submittedAt,
+        sourceCode: submissions.sourceCode,
+        questionId: submissions.questionId,
+        studentName: students.name,
+        studentRoll: students.rollNumber
+      })
+      .from(submissions)
+      .innerJoin(
+        students,
+        eq(submissions.studentId, students.id)
+      )
       .all();
 
-    const testSubmissions = allSubmissions.filter(sub => questionIds.includes(sub.questionId));
+    const testSubmissions = allSubmissions.filter(
+      sub => questionIds.includes(sub.questionId)
+    );
 
-    res.json(testSubmissions);
+    return res.json(testSubmissions);
   } catch (error) {
     console.error("Result error:", error);
-    res.status(500).json({ message: "Error fetching results" });
+
+    return res.status(500).json({
+      message: "Error fetching results"
+    });
   }
 };

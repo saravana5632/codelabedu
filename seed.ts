@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { db } from "./src/db/index.js";
-import { students, faculty } from "./src/db/schema.js";
+import { db } from "../db/index.js";
+import { students, faculty } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import jwt from "jsonwebtoken";
 import { AuthRequest } from "../middleware/authMiddleware.js";
@@ -34,7 +34,6 @@ export const login = async (req: Request, res: Response) => {
         });
       }
 
-      // Normalize DOB to DD-MM-YYYY
       let normalizedDob = String(dob).trim();
 
       if (normalizedDob.includes("-")) {
@@ -120,31 +119,22 @@ export const login = async (req: Request, res: Response) => {
         });
       }
 
+      const cleanEmail = String(email).trim();
+      const cleanPassword = String(password).trim();
+
       console.log(
-        `[LOGIN] Faculty attempting login: ${email}`
+        `[LOGIN] Faculty attempting login: ${cleanEmail}`
       );
 
       let facultyUser: any;
 
       try {
-        /*
-         * IMPORTANT:
-         * Faculty table in Turso contains:
-         *
-         * id
-         * email
-         * password
-         *
-         * We use raw SQL here so the code does not
-         * depend on an incorrectly named Drizzle field.
-         */
-
         const result = await db.all(
           sql`
             SELECT id, email, password
             FROM faculty
-            WHERE email = ${email}
-            AND password = ${password}
+            WHERE email = ${cleanEmail}
+            AND password = ${cleanPassword}
             LIMIT 1
           `
         );
@@ -153,7 +143,7 @@ export const login = async (req: Request, res: Response) => {
       } catch (dbError: any) {
         console.error(
           "[LOGIN] Faculty database error:",
-          dbError.message
+          dbError
         );
 
         return res.status(500).json({
@@ -164,7 +154,7 @@ export const login = async (req: Request, res: Response) => {
 
       if (!facultyUser) {
         console.log(
-          `[LOGIN] Faculty login failed: ${email}`
+          `[LOGIN] Faculty login failed: ${cleanEmail}`
         );
 
         return res.status(401).json({
@@ -174,7 +164,7 @@ export const login = async (req: Request, res: Response) => {
       }
 
       console.log(
-        `[LOGIN] Faculty login successful: ${email}`
+        `[LOGIN] Faculty login successful: ${cleanEmail}`
       );
 
       const token = jwt.sign(
@@ -211,7 +201,7 @@ export const login = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error(
       "[LOGIN] Unexpected error:",
-      error.message
+      error
     );
 
     return res.status(500).json({
@@ -234,6 +224,7 @@ export const getMe = async (
 
     if (!user) {
       return res.status(401).json({
+        success: false,
         message: "Unauthorized",
       });
     }
@@ -251,11 +242,13 @@ export const getMe = async (
 
       if (!student) {
         return res.status(404).json({
+          success: false,
           message: "Student not found",
         });
       }
 
       return res.json({
+        success: true,
         id: student.id,
         role: "student",
         name: student.name,
@@ -273,7 +266,7 @@ export const getMe = async (
       try {
         const result = await db.all(
           sql`
-            SELECT id, email
+            SELECT id, faculty_id, name, department, email
             FROM faculty
             WHERE id = ${user.id}
             LIMIT 1
@@ -284,38 +277,46 @@ export const getMe = async (
       } catch (dbError: any) {
         console.error(
           "[GET ME] Faculty database error:",
-          dbError.message
+          dbError
         );
 
         return res.status(500).json({
+          success: false,
           message: "Database connection failed",
         });
       }
 
       if (!facultyUser) {
         return res.status(404).json({
+          success: false,
           message: "Faculty not found",
         });
       }
 
       return res.json({
+        success: true,
         id: facultyUser.id,
         role: "faculty",
+        facultyId: facultyUser.faculty_id,
+        name: facultyUser.name,
+        department: facultyUser.department,
         email: facultyUser.email,
       });
     }
 
     return res.status(400).json({
+      success: false,
       message: "Invalid user role",
     });
 
   } catch (error: any) {
     console.error(
       "[GET ME] Error:",
-      error.message
+      error
     );
 
     return res.status(500).json({
+      success: false,
       message: "Internal server error",
     });
   }
