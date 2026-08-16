@@ -306,6 +306,7 @@ Make sure the following are installed:
 * Node.js
 * npm
 * Git
+* VS Code Studio
 
 ### Clone the Repository
 
