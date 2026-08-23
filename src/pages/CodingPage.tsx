@@ -7,6 +7,10 @@ import { Play, Send, RefreshCw, ChevronLeft, AlertTriangle } from "lucide-react"
 export default function CodingPage() {
   const { testId } = useParams();
   const navigate = useNavigate();
+
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+
   const [test, setTest] = useState<any>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [activeQIndex, setActiveQIndex] = useState(0);
@@ -21,8 +25,181 @@ export default function CodingPage() {
   const [submittedSolutions, setSubmittedSolutions] = useState<Record<number, boolean>>({});
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const timerStartedRef = useRef(false);
+  const timerSubmittingRef = useRef(false);
+// ==================== TIMER ====================
+
+const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+const formatTime = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(
+    2,
+    "0"
+  )}`;
+};
+
+// Fetch test, questions and initialize timer
+const fetchTestAndQuestions = async () => {
+  try {
+    const selection = sessionStorage.getItem(
+      `selectedQuestions_${user.id}_${testId}`
+    );
+
+    if (!selection) {
+      navigate(`/test/${testId}/selection`);
+      return;
+    }
+
+    const selectedIds = JSON.parse(selection);
+
+    if (selectedIds.length !== 2) {
+      navigate(`/test/${testId}/selection`);
+      return;
+    }
+
+    // Get test details from database
+    const res = await api.get(`/student/tests/${testId}`);
+
+    setTest(res.data);
+
+    // ==================== TIMER ====================
+
+    // duration is stored in minutes in the tests table
+    // ==================== TIMER ====================
+
+const durationInMinutes = Number(res.data.duration);
+
+console.log("Timer duration from DB:", durationInMinutes, "minutes");
+
+if (!durationInMinutes || durationInMinutes <= 0) {
+  console.error("Invalid test duration from database:", res.data.duration);
+  setTimeLeft(null);
+} else {
+  const storageKey = `assessmentEndTime_${user.id}_${testId}`;
+  const durationKey = `assessmentDuration_${user.id}_${testId}`;
+
+  const previousDuration = sessionStorage.getItem(durationKey);
+
+  let endTime = sessionStorage.getItem(storageKey);
+
+  // If the DB duration has changed, create a new timer.
+  if (!endTime || previousDuration !== String(durationInMinutes)) {
+    endTime = String(
+      Date.now() + durationInMinutes * 60 * 1000
+    );
+
+    sessionStorage.setItem(storageKey, endTime);
+    sessionStorage.setItem(
+      durationKey,
+      String(durationInMinutes)
+    );
+
+    console.log(
+      "New timer started:",
+      durationInMinutes,
+      "minutes"
+    );
+  }
+
+  const remainingSeconds = Math.max(
+    0,
+    Math.floor(
+      (Number(endTime) - Date.now()) / 1000
+    )
+  );
+
+  console.log(
+    "Timer remaining:",
+    remainingSeconds,
+    "seconds"
+  );
+
+  setTimeLeft(remainingSeconds);
+}
+
+    // ==================== QUESTIONS ====================
+
+    const selectedQs = res.data.questions.filter(
+      (q: any) => selectedIds.includes(q.id)
+    );
+
+    if (selectedQs.length !== 2) {
+      navigate(`/test/${testId}/selection`);
+      return;
+    }
+
+    const q1Res = await api.get(
+      `/student/questions/${selectedQs[0].id}`
+    );
+
+    const q2Res = await api.get(
+      `/student/questions/${selectedQs[1].id}`
+    );
+
+    const q1 = q1Res.data;
+    const q2 = q2Res.data;
+
+    setQuestions([q1, q2]);
+
+    const getStarter = (q: any, lang: string) => {
+      if (!q.starterCode) return "";
+
+      const parsed =
+        typeof q.starterCode === "string"
+          ? JSON.parse(q.starterCode)
+          : q.starterCode;
+
+      return parsed[lang] || "";
+    };
+
+    setCodes([
+  getStarter(q1, "Python"),
+  getStarter(q2, "Python")
+]);
+
+  } catch (error) {
+    console.error(
+      "Error fetching test and questions:",
+      error
+    );
+  }
+};
+
+
+// ==================== COUNTDOWN ====================
+useEffect(() => {
+  if (timeLeft === null) return;
+
+  if (timeLeft <= 0) {
+    if (!timerSubmittingRef.current) {
+      handleTimerExpired();
+    }
+    return;
+  }
+
+  const timer = window.setTimeout(() => {
+    setTimeLeft((previous) => {
+      if (previous === null) {
+        return null;
+      }
+
+      return previous <= 1 ? 0 : previous - 1;
+    });
+  }, 1000);
+
+  return () => window.clearTimeout(timer);
+}, [timeLeft]);
+
+
+// ==================== DISPLAY TIMER ====================
+
+const timerDisplay =
+  timeLeft !== null
+    ? formatTime(timeLeft)
+    : "--:--";
 
   // Fullscreen and Malpractice State
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -47,52 +224,6 @@ export default function CodingPage() {
     fetchTestAndQuestions();
   }, [testId]);
 
-  const fetchTestAndQuestions = async () => {
-    try {
-      const selection = sessionStorage.getItem(`selectedQuestions_${user.id}_${testId}`);
-      if (!selection) {
-        navigate(`/test/${testId}/selection`);
-        return;
-      }
-      const selectedIds = JSON.parse(selection);
-      if (selectedIds.length !== 2) {
-        navigate(`/test/${testId}/selection`);
-        return;
-      }
-
-      const res = await api.get(`/student/tests/${testId}`);
-      setTest(res.data);
-      
-      // Filter to only the selected questions
-      const selectedQs = res.data.questions.filter((q: any) => selectedIds.includes(q.id));
-      if (selectedQs.length !== 2) {
-        navigate(`/test/${testId}/selection`);
-        return;
-      }
-      
-      // Fetch full details for the selected questions
-      const q1Res = await api.get(`/student/questions/${selectedQs[0].id}`);
-      const q2Res = await api.get(`/student/questions/${selectedQs[1].id}`);
-      const q1 = q1Res.data;
-      const q2 = q2Res.data;
-      setQuestions([q1, q2]);
-      
-      const getStarter = (q: any, lang: string) => {
-        if (!q.starterCode) return "";
-        const parsed = typeof q.starterCode === 'string' ? JSON.parse(q.starterCode) : q.starterCode;
-        return parsed[lang] || "";
-      };
-      
-      setCodes([getStarter(q1, "Python"), getStarter(q2, "Python")]);
-    } catch (err: any) {
-      if (err.response?.status === 403 && err.response?.data?.completed) {
-        alert("You have already submitted this test.");
-      } else {
-        console.error(err);
-      }
-      navigate("/student");
-    }
-  };
 
   // Malpractice Detection Listeners
   useEffect(() => {
@@ -420,7 +551,50 @@ export default function CodingPage() {
     setShowSubmitModal(false);
   };
 
-  
+  const handleTimerExpired = async () => {
+  if (timerSubmittingRef.current) return;
+
+  timerSubmittingRef.current = true;
+  setIsSubmitting(true);
+
+  try {
+    await api.post("/student/submit", {
+      submissions: questionsRef.current.map((q, i) => ({
+        question_id: q.id,
+        source_code: codesRef.current[i] || "",
+        language: languagesRef.current[i],
+        isAutoSubmit: true
+      }))
+    });
+
+    const currentUser = JSON.parse(
+      localStorage.getItem("user") || "{}"
+    );
+
+    sessionStorage.removeItem(
+      `selectedQuestions_${currentUser.id}_${testId}`
+    );
+
+    sessionStorage.removeItem(
+      `assessmentEndTime_${currentUser.id}_${testId}`
+    );
+
+    sessionStorage.setItem(
+      `submitted_test_${currentUser.id}_${testId}`,
+      "true"
+    );
+
+    alert("Time is up. Your assessment has been submitted automatically.");
+
+    navigate("/student", { replace: true });
+
+  } catch (error) {
+    console.error("Timer auto-submit failed:", error);
+    alert("Time is up, but automatic submission failed. Please contact your instructor.");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const handleEditorDidMount = (editorInstance: any) => {
     editorInstance.focus();
@@ -552,7 +726,7 @@ export default function CodingPage() {
           <div className="flex items-center gap-2">
             <div className="flex flex-col items-end">
               <span className="text-xs text-gray-500 uppercase font-semibold">Time Remaining</span>
-              <span className="text-sm font-mono font-bold text-red-600">--:--</span>
+              <span className={`text-sm font-mono font-bold ${timeLeft !== null && timeLeft <= 60 ? "text-red-600" : "text-green-600"}`}>{timerDisplay}</span>
             </div>
           </div>
           <button
