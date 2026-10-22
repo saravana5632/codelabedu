@@ -10,8 +10,10 @@ import CodingPage from "./pages/CodingPage.tsx";
 import FacultyLayout from "./pages/faculty/FacultyLayout.tsx";
 import DashboardHome from "./pages/faculty/DashboardHome.tsx";
 import TestManagement from "./pages/faculty/TestManagement.tsx";
+import QuestionManagement from "./pages/faculty/QuestionManagement.tsx";
 import TestAnalytics from "./pages/faculty/TestAnalytics.tsx";
 import StudentManagement from "./pages/faculty/StudentManagement.tsx";
+import AssessmentTimer from "./pages/faculty/AssessmentTimer.tsx";
 
 import TestSelectionPage from "./pages/TestSelectionPage.tsx";
 
@@ -27,12 +29,13 @@ export default function App() {
         <Route path="/faculty" element={<FacultyLayout />}>
           <Route index element={<DashboardHome />} />
           <Route path="tests" element={<TestManagement />} />
+          <Route path="questions" element={<QuestionManagement />} />
+          <Route path="timer" element={<AssessmentTimer />} />
           <Route path="analytics/:id" element={<TestAnalytics />} />
-          {/* Placeholders for other nav items */}
           <Route path="analytics" element={<div className="p-4">Please select a test from the Tests tab to view analytics.</div>} />
           <Route path="students" element={<StudentManagement />} />
-          <Route path="reports" element={<div className="p-4">Reports Coming Soon</div>} />
-          <Route path="settings" element={<div className="p-4">Settings Coming Soon</div>} />
+          <Route path="reports" element={<div className="p-4">Please select a test from the Tests tab to export reports.</div>} />
+          <Route path="settings" element={<AssessmentTimer />} />
         </Route>
 
         <Route path="/test/:testId/selection" element={<TestSelectionPage />} />

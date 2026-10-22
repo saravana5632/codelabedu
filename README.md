@@ -205,6 +205,24 @@ faculty
 | `submission_statistics` | Stores execution and scoring information |
 | `test_completions`      | Tracks completed tests                   |
 | `test_analytics`        | Stores test performance statistics       |
+| `assessment_timer_configs` | Stores authoritative per-assessment timer settings (`timer_enabled`, `duration_minutes`, `grace_period_seconds`, `auto_submit_on_expiry`, `updated_at`, `updated_by`) |
+| `assessment_sessions`   | Tracks individual student assessment sessions, server-calculated deadlines (`started_at`, `deadline_at`, `submitted_at`, `status`), selected questions, and auto-saved code drafts |
+
+---
+
+## Dynamic Assessment Timer Architecture
+
+1. **Faculty/Admin Control (`/faculty/timer` & Dashboard):**
+   - Configure assessment duration in hours and minutes, quick presets (`15`, `30`, `45`, `60`, `90`, `120` minutes), or custom total minutes.
+   - Toggle timer enforcement on/off (`timer_enabled`).
+   - Choose session scope policy:
+     - **Future Sessions Only (Default):** Existing active students keep their recorded server deadline; new students receive the updated duration.
+     - **Apply to Active & Future Sessions:** Recalculates `deadline_at` on the server for active sessions based on their recorded `started_at` (with explicit confirmation).
+2. **Server-Side Timing Authority & Scale (3,500+ Concurrent Students):**
+   - When a student starts an assessment (`POST /api/assessments/:id/start`), the server calculates `deadline_at = started_at + duration_minutes` using the server clock and persists it in `assessment_sessions`.
+   - Page refreshes, question switching (`Q1` ↔ `Q2`), or reconnections return the original `deadline_at` without resetting the clock.
+   - The frontend computes the visual countdown (`Time Remaining: HH:MM:SS` / `MM:SS`) against the server-synchronized deadline (`serverOffsetMs`) to prevent drift, showing warnings at **5 minutes** and **1 minute** remaining.
+   - Code drafts are automatically persisted to `assessment_sessions.drafts`. A single lightweight periodic sweep (`processExpiredSessions`) and on-demand checks finalize expired sessions and evaluate saved drafts idempotently without holding thousands of in-memory timers.
 
 ---
 
@@ -215,6 +233,18 @@ faculty
 ```text
 POST /api/login
 GET  /api/me
+```
+
+### Dynamic Assessment Timer & Session APIs
+
+```text
+GET  /api/admin/assessments/timers
+GET  /api/admin/assessments/:id/timer
+PUT  /api/admin/assessments/:id/timer
+POST /api/assessments/:id/start
+GET  /api/assessment-sessions/:sessionId/timer
+PUT  /api/assessment-sessions/:sessionId/draft
+POST /api/assessment-sessions/:sessionId/submit
 ```
 
 ### Student APIs

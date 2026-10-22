@@ -1,25 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../../lib/api.ts';
-import { Plus, Play, Pause, Trash2, Copy, BarChart3, Edit, Search, Code, X } from 'lucide-react';
+import { Plus, Play, Pause, Trash2, Copy, BarChart3, Search, Code, Clock } from 'lucide-react';
 
 export default function TestManagement() {
+  const navigate = useNavigate();
   const [tests, setTests] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [newTest, setNewTest] = useState({ title: "", subject: "", duration: 60, startTime: "", endTime: "" });
+  const [newTest, setNewTest] = useState({ title: "", subject: "", duration: 45, startTime: "", endTime: "" });
   const [searchTerm, setSearchTerm] = useState("");
-  
-  const [addingQuestionForTest, setAddingQuestionForTest] = useState<number | null>(null);
-  const [newQuestion, setNewQuestion] = useState({
-    title: "",
-    description: "",
-    constraints: "",
-    inputFormat: "",
-    outputFormat: "",
-    sampleInput: "",
-    sampleOutput: "",
-    difficulty: "medium"
-  });
+  const [statusMessage, setStatusMessage] = useState<string>("");
 
   const fetchTests = async () => {
     try {
@@ -27,7 +17,6 @@ export default function TestManagement() {
       if (Array.isArray(res.data)) {
         setTests(res.data);
       } else {
-        console.error("Expected array but got:", res.data);
         setTests([]);
       }
     } catch (err) {
@@ -53,38 +42,41 @@ export default function TestManagement() {
       };
       await api.post("/faculty/tests", payload);
       setShowCreate(false);
-      setNewTest({ title: "", subject: "", duration: 60, startTime: "", endTime: "" });
+      setNewTest({ title: "", subject: "", duration: 45, startTime: "", endTime: "" });
+      setStatusMessage("Test created with authoritative timer settings.");
       fetchTests();
     } catch (err) {
-      alert("Error creating test");
+      setStatusMessage("Error creating test.");
     }
   };
 
   const publishTest = async (id: number) => {
     try {
       await api.put(`/faculty/tests/${id}`, { status: "published" });
+      setStatusMessage("Test published.");
       fetchTests();
     } catch (err) {
-      alert("Error publishing test");
+      setStatusMessage("Error publishing test.");
     }
   };
 
   const unpublishTest = async (id: number) => {
     try {
       await api.put(`/faculty/tests/${id}`, { status: "draft" });
+      setStatusMessage("Test moved to draft.");
       fetchTests();
     } catch (err) {
-      alert("Error unpublishing test");
+      setStatusMessage("Error unpublishing test.");
     }
   };
 
   const duplicateTest = async (id: number) => {
-    if(!window.confirm("Are you sure you want to duplicate this test?")) return;
     try {
       await api.post(`/faculty/tests/${id}/duplicate`);
+      setStatusMessage("Test duplicated successfully.");
       fetchTests();
     } catch (err) {
-      alert("Error duplicating test");
+      setStatusMessage("Error duplicating test.");
     }
   };
 
@@ -95,7 +87,7 @@ export default function TestManagement() {
       const res = await api.get(`/faculty/tests/${id}/check-submissions`);
       setDeleteModal({ show: true, testId: id, hasSubmissions: res.data.hasSubmissions });
     } catch (err) {
-      alert("Error checking test status");
+      setStatusMessage("Error checking test status.");
     }
   };
 
@@ -103,36 +95,11 @@ export default function TestManagement() {
     if (!deleteModal.testId) return;
     try {
       await api.delete(`/faculty/tests/${deleteModal.testId}`, { data: { action } });
-      alert(action === 'archive' ? 'Test archived successfully' : 'Test permanently deleted');
+      setStatusMessage(action === 'archive' ? 'Test archived successfully.' : 'Test permanently deleted.');
       setDeleteModal({ show: false, testId: null, hasSubmissions: false });
       fetchTests();
     } catch (err) {
-      alert("Error deleting test");
-    }
-  };
-
-  const handleAddQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!addingQuestionForTest) return;
-    try {
-      await api.post("/faculty/questions", {
-        testId: addingQuestionForTest,
-        ...newQuestion
-      });
-      alert("Question added successfully!");
-      setAddingQuestionForTest(null);
-      setNewQuestion({
-        title: "",
-        description: "",
-        constraints: "",
-        inputFormat: "",
-        outputFormat: "",
-        sampleInput: "",
-        sampleOutput: "",
-        difficulty: "medium"
-      });
-    } catch (err) {
-      alert("Error adding question");
+      setStatusMessage("Error deleting test.");
     }
   };
 
@@ -142,13 +109,22 @@ export default function TestManagement() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Test Management</h2>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Create New Test
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" /> Create New Test
+          </button>
+        </div>
       </div>
+
+      {statusMessage && (
+        <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs font-medium text-blue-800 flex items-center justify-between">
+          <span>{statusMessage}</span>
+          <button onClick={() => setStatusMessage("")} className="text-blue-600 hover:text-blue-900">Dismiss</button>
+        </div>
+      )}
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex gap-4 items-center">
         <div className="relative flex-1 max-w-md">
@@ -169,6 +145,8 @@ export default function TestManagement() {
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Test Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Questions</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timer</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
@@ -181,31 +159,53 @@ export default function TestManagement() {
                   <div className="text-sm text-gray-500">{new Date(test.startTime).toLocaleString()}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{test.subject}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-mono tabular-nums text-gray-800">
+                  <Link
+                    to={`/faculty/questions?testId=${test.id}`}
+                    className="text-blue-600 hover:underline font-medium"
+                  >
+                    {test.publishedQuestionsCount ?? test.questionsCount ?? 0} published
+                  </Link>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-mono tabular-nums text-gray-800">
+                  {test.timerEnabled === false ? (
+                    <span className="text-amber-700 font-sans text-xs font-medium">Disabled (Untimed)</span>
+                  ) : (
+                    <span>{test.durationMinutes ?? test.duration} min</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    test.status === 'published' ? 'bg-green-100 text-green-800' :
-                    test.status === 'completed' ? 'bg-gray-100 text-gray-800' :
-                    'bg-yellow-100 text-yellow-800'
+                  <span className={`text-xs font-semibold ${
+                    test.status === 'published' ? 'text-green-700' :
+                    test.status === 'completed' ? 'text-gray-700' :
+                    'text-amber-700'
                   }`}>
                     {test.status.toUpperCase()}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => navigate(`/faculty/questions?testId=${test.id}&create=1`)}
+                      className="text-blue-600 hover:text-blue-900 flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded hover:bg-blue-50"
+                      title="Add Programming Question"
+                    >
+                      <Code className="w-4 h-4" /> Add Question
+                    </button>
+
                     {test.status === 'draft' ? (
-                      <>
-                        <button onClick={() => setAddingQuestionForTest(test.id)} className="text-blue-600 hover:text-blue-900" title="Add Question">
-                          <Code className="w-5 h-5" />
-                        </button>
-                        <button onClick={() => publishTest(test.id)} className="text-green-600 hover:text-green-900" title="Publish">
-                          <Play className="w-5 h-5" />
-                        </button>
-                      </>
+                      <button onClick={() => publishTest(test.id)} className="text-green-600 hover:text-green-900" title="Publish">
+                        <Play className="w-5 h-5" />
+                      </button>
                     ) : test.status === 'published' ? (
                       <button onClick={() => unpublishTest(test.id)} className="text-yellow-600 hover:text-yellow-900" title="Unpublish">
                         <Pause className="w-5 h-5" />
                       </button>
                     ) : null}
+
+                    <Link to={`/faculty/timer?testId=${test.id}`} className="text-blue-600 hover:text-blue-900" title="Configure Assessment Timer">
+                      <Clock className="w-5 h-5" />
+                    </Link>
                     
                     <Link to={`/faculty/analytics/${test.id}`} className="text-indigo-600 hover:text-indigo-900" title="Analytics">
                       <BarChart3 className="w-5 h-5" />
@@ -224,7 +224,7 @@ export default function TestManagement() {
             ))}
             {filteredTests.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
+                <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
                   No tests found.
                 </td>
               </tr>
@@ -253,67 +253,6 @@ export default function TestManagement() {
               <div className="pt-4 flex justify-end gap-3">
                 <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
                 <button type="submit" className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Create Test</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {addingQuestionForTest && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-xl font-bold text-gray-900">Add Programming Question</h3>
-              <button onClick={() => setAddingQuestionForTest(null)} className="text-gray-500 hover:text-gray-700">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <form onSubmit={handleAddQuestion} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Question Title</label>
-                  <input required type="text" value={newQuestion.title} onChange={e => setNewQuestion({...newQuestion, title: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="e.g. Reverse a Singly Linked List" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
-                  <textarea required rows={3} value={newQuestion.description} onChange={e => setNewQuestion({...newQuestion, description: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Write a program to..." />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Constraints</label>
-                  <textarea rows={2} value={newQuestion.constraints} onChange={e => setNewQuestion({...newQuestion, constraints: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="1 <= N <= 10^5" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Input Format</label>
-                  <textarea rows={2} value={newQuestion.inputFormat} onChange={e => setNewQuestion({...newQuestion, inputFormat: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Output Format</label>
-                  <textarea rows={2} value={newQuestion.outputFormat} onChange={e => setNewQuestion({...newQuestion, outputFormat: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Sample Input</label>
-                  <textarea required rows={3} value={newQuestion.sampleInput} onChange={e => setNewQuestion({...newQuestion, sampleInput: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Sample Output</label>
-                  <textarea required rows={3} value={newQuestion.sampleOutput} onChange={e => setNewQuestion({...newQuestion, sampleOutput: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Difficulty</label>
-                  <select value={newQuestion.difficulty} onChange={e => setNewQuestion({...newQuestion, difficulty: e.target.value})} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                    <option value="easy">Easy</option>
-                    <option value="medium">Medium</option>
-                    <option value="hard">Hard</option>
-                  </select>
-                </div>
-              </div>
-              <div className="pt-4 flex justify-end gap-3">
-                <button type="button" onClick={() => setAddingQuestionForTest(null)} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
-                  Save Question
-                </button>
               </div>
             </form>
           </div>

@@ -1,15 +1,25 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
 export const students = sqliteTable("students", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   rollNumber: text("roll_number").notNull().unique(),
   name: text("name").notNull(),
-  dob: text("dob").notNull(),
-  department: text("department"),
-  year: integer("year"),
-  semester: integer("semester"),
+  password: text("password").notNull(),
+  department: text("department").notNull(),
+  registerNumber: integer("register_number").notNull(),
 });
+
+export const studentAuthMetadata = sqliteTable("student_auth_metadata", {
+  studentId: integer("student_id")
+    .primaryKey()
+    .references(() => students.id),
+  tokenVersion: integer("token_version").notNull().default(1),
+  passwordInitializedAt: text("password_initialized_at"),
+  passwordUpdatedAt: text("password_updated_at"),
+  resetCodeHash: text("reset_code_hash"),
+  resetCodeExpiresAt: text("reset_code_expires_at"),
+});
+
 
 export const faculty = sqliteTable("faculty", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -41,7 +51,17 @@ export const questions = sqliteTable("questions", {
     .references(() => tests.id)
     .notNull(),
   title: text("title").notNull(),
+  slug: text("slug"),
   description: text("description").notNull(),
+  topic: text("topic").default("Algorithms"),
+  maxMarks: integer("max_marks").default(50),
+  timeLimitSeconds: real("time_limit_seconds").default(2.0),
+  memoryLimitMb: integer("memory_limit_mb").default(128),
+  status: text("status", {
+    enum: ["draft", "published", "archived"],
+  }).default("published"),
+  examples: text("examples", { mode: "json" }),
+  functionConfig: text("function_config", { mode: "json" }),
   constraints: text("constraints"),
   inputFormat: text("input_format"),
   outputFormat: text("output_format"),
@@ -53,6 +73,30 @@ export const questions = sqliteTable("questions", {
   difficulty: text("difficulty", {
     enum: ["easy", "medium", "hard"],
   }).default("medium"),
+  createdAt: text("created_at"),
+  updatedAt: text("updated_at"),
+});
+
+export const questionTestCases = sqliteTable("question_test_cases", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  questionId: integer("question_id")
+    .references(() => questions.id)
+    .notNull(),
+  name: text("name").notNull(),
+  inputArgs: text("input_args").notNull(),
+  expectedOutput: text("expected_output").notNull(),
+  visibility: text("visibility", {
+    enum: ["public", "private"],
+  })
+    .default("private")
+    .notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).default(true).notNull(),
+  isEssential: integer("is_essential", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  orderIndex: integer("order_index").default(0).notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
 export const submissions = sqliteTable("submissions", {
@@ -108,4 +152,41 @@ export const submissionStatistics = sqliteTable("submission_statistics", {
   compileStatus: text("compile_status"),
   runtimeStatus: text("runtime_status"),
   score: real("score").default(0),
+});
+
+export const assessmentTimerConfigs = sqliteTable("assessment_timer_configs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  assessmentId: integer("assessment_id")
+    .references(() => tests.id)
+    .notNull()
+    .unique(),
+  timerEnabled: integer("timer_enabled", { mode: "boolean" }).default(true).notNull(),
+  durationMinutes: integer("duration_minutes").default(60).notNull(),
+  gracePeriodSeconds: integer("grace_period_seconds").default(15).notNull(),
+  autoSubmitOnExpiry: integer("auto_submit_on_expiry", { mode: "boolean" }).default(true).notNull(),
+  updatedAt: text("updated_at").notNull(),
+  updatedBy: integer("updated_by").references(() => faculty.id),
+});
+
+export const assessmentSessions = sqliteTable("assessment_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  studentId: integer("student_id")
+    .references(() => students.id)
+    .notNull(),
+  assessmentId: integer("assessment_id")
+    .references(() => tests.id)
+    .notNull(),
+  timerEnabled: integer("timer_enabled", { mode: "boolean" }).default(true).notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  startedAt: text("started_at").notNull(),
+  deadlineAt: text("deadline_at"),
+  submittedAt: text("submitted_at"),
+  status: text("status", {
+    enum: ["active", "submitted", "expired"],
+  })
+    .default("active")
+    .notNull(),
+  selectedQuestions: text("selected_questions", { mode: "json" }),
+  drafts: text("drafts", { mode: "json" }),
+  updatedAt: text("updated_at").notNull(),
 });
