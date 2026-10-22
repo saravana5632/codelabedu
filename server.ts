@@ -5,10 +5,22 @@ import cors from "cors";
 
 import { setupRoutes } from "./src/routes.js";
 import { db } from "./src/db/index.js";
+import { ensureTimerTables } from "./src/db/migrate.js";
+import { processExpiredSessions } from "./src/controllers/timer.js";
 
 async function startServer() {
+  await ensureTimerTables();
+
+  // Lightweight background sweep every 15s to auto-finalize expired sessions
+  // even when students close or disconnect their browsers.
+  setInterval(() => {
+    processExpiredSessions().catch((err) =>
+      console.error("[TIMER SWEEP] Interval error:", err)
+    );
+  }, 15000);
+
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Render frontend might be on a different origin in production
   app.use(cors({
@@ -41,7 +53,6 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    // Express 5.x uses *all or wildcard syntax, but app.get('*') usually works. Wait, for Express 5: app.get('*', ...) still works for catch-all if we use it, wait: app.get("*", ...) might be deprecated in favor of "*all". The guidelines mention: "In Express v4, use app.get('*', ...), but in Express v5, you must use app.get('*all', ...)"
     app.get("*all", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
@@ -56,7 +67,7 @@ async function startServer() {
     });
   });
 
-  app.listen(PORT, "0.0.0.0", (err) => { if (err) { console.error(err); process.exit(1); }
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

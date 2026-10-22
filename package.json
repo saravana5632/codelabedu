@@ -9,6 +9,10 @@
     "start": "node dist/server.cjs",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit push",
+    "db:migrate:timer": "tsx scripts/database/migrate-timer.ts",
+    "test:timer": "tsx scripts/database/test-dynamic-timer.ts",
+    "test:questions": "tsx scripts/database/test-leetcode-questions.ts",
+    "test:auth": "tsx scripts/database/test-password-auth.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
