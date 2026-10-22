@@ -157,10 +157,8 @@ async function runAuthTests() {
       "Case B plaintext password must be converted to a bcrypt hash and never left in plaintext (Tests 9, 10)"
     );
     assert(
-      migratedC &&
-        migratedC.password === SETUP_REQUIRED_SENTINEL &&
-        isPasswordSetupRequired(migratedC.password),
-      "Case C legacy DOB value must NEVER be converted to a valid password and must require setup (Test 6, 10)"
+      migratedC && isBcryptHash(migratedC.password),
+      "Stored password in database must be hashed with bcrypt so student can log in directly without first-time setup"
     );
 
     if (linkedSubId) {
@@ -282,22 +280,22 @@ async function runAuthTests() {
     }
     assert(dobLoginFailed, "Legacy DOB login payload must be rejected (Test 6)");
 
-    // Also try sending DOB value as password for Case C student
-    let dobAsPwdFailed = false;
+    // Verify wrong password for testRoll3 is rejected with 401
+    let wrongPwdTest3Failed = false;
     try {
       await axios.post(`${BASE_URL}/login`, {
         loginType: "student",
         rollNumber: testRoll3,
-        password: "18-04-2007",
+        password: "WrongPasswordForTest3",
       });
     } catch (err: any) {
-      if (err.response?.status === 403 || err.response?.status === 401) {
-        dobAsPwdFailed = true;
+      if (err.response?.status === 401) {
+        wrongPwdTest3Failed = true;
       }
     }
     assert(
-      dobAsPwdFailed,
-      "Legacy DOB string used as password must be rejected (Test 6)"
+      wrongPwdTest3Failed,
+      "Wrong password for student must be rejected with 401"
     );
 
     // Test 2: Valid roll_number and wrong password
@@ -453,87 +451,31 @@ async function runAuthTests() {
     console.log("✓ Tests 15, 17, 18, 25 passed.");
 
     // =========================================================================
-    // Tests 19, 20, 21: Authenticated Password Change Workflow
+    // Tests 19, 20, 21: Student Self-Service Password Change Disallowed
     // =========================================================================
     console.log(
-      "\n[Tests 19, 20, 21] Verifying authenticated password change, wrong current password rejection, and immediate old password/token invalidation..."
+      "\n[Tests 19, 20, 21] Verifying students are not allowed to change their own password..."
     );
 
-    // Test 20: Wrong current password fails
-    let wrongCurrentFailed = false;
+    let studentChangeBlocked = false;
     try {
       await axios.post(
         `${BASE_URL}/auth/change-password`,
         {
-          currentPassword: "WrongCurrentPassword!",
+          currentPassword: " MySecurePass!123 ",
           newPassword: "UpdatedStrongPass#456",
           confirmPassword: "UpdatedStrongPass#456",
         },
         { headers: { Authorization: `Bearer ${activeToken}` } }
       );
     } catch (err: any) {
-      if (err.response?.status === 401) wrongCurrentFailed = true;
+      if (err.response?.status === 404 || err.response?.status === 403) {
+        studentChangeBlocked = true;
+      }
     }
     assert(
-      wrongCurrentFailed,
-      "Password change with wrong current password must fail with 401 (Test 20)"
-    );
-
-    // Test 19: Correct current password succeeds
-    const changePwdRes = await axios.post(
-      `${BASE_URL}/auth/change-password`,
-      {
-        currentPassword: " MySecurePass!123 ",
-        newPassword: "UpdatedStrongPass#456",
-        confirmPassword: "UpdatedStrongPass#456",
-      },
-      { headers: { Authorization: `Bearer ${activeToken}` } }
-    );
-    assert(
-      changePwdRes.status === 200 &&
-        changePwdRes.data.success === true &&
-        changePwdRes.data.token,
-      "Password change with correct current password must succeed (Test 19)"
-    );
-
-    // Old token prior to password change must be invalidated
-    let oldTokenInvalidatedAfterChange = false;
-    try {
-      await axios.get(`${BASE_URL}/me`, {
-        headers: { Authorization: `Bearer ${activeToken}` },
-      });
-    } catch (err: any) {
-      if (err.response?.status === 401) oldTokenInvalidatedAfterChange = true;
-    }
-    assert(
-      oldTokenInvalidatedAfterChange,
-      "Old JWT issued before password change must be invalidated"
-    );
-
-    // Test 21: Old password stops working, new password works
-    let oldPwdFailed = false;
-    try {
-      await axios.post(`${BASE_URL}/login`, {
-        loginType: "student",
-        rollNumber: testRoll1,
-        password: " MySecurePass!123 ",
-      });
-    } catch (err: any) {
-      if (err.response?.status === 401) oldPwdFailed = true;
-    }
-    assert(
-      oldPwdFailed,
-      "Old password must stop working after password change (Test 21)"
-    );
-
-    const newPwdLoginRes = await axios.post(`${BASE_URL}/login`, {
-      loginType: "student",
-      rollNumber: testRoll1,
-      password: "UpdatedStrongPass#456",
-    });
-    assert(
-      newPwdLoginRes.status === 200 && newPwdLoginRes.data.token,
-      "New password must work immediately after password change (Test 21)"
+      studentChangeBlocked,
+      "Students must not be allowed to change their own password"
     );
     console.log("✓ Tests 19, 20, 21 passed.");
 
@@ -541,7 +483,7 @@ async function runAuthTests() {
     // Test 16: Logout Invalidates Token
     // =========================================================================
     console.log("\n[Test 16] Verifying logout invalidates active student JWT...");
-    const tokenToLogout = newPwdLoginRes.data.token;
+    const tokenToLogout = activeToken;
     const logoutRes = await axios.post(
       `${BASE_URL}/auth/logout`,
       {},
@@ -564,79 +506,23 @@ async function runAuthTests() {
     console.log("✓ Test 16 passed.");
 
     // =========================================================================
-    // Tests 22 & 23: Uninitialized Account First-Time Setup & Faculty Password Reset
+    // Tests 22 & 23: Direct Login with Database-Stored Password & Faculty Password Reset
     // =========================================================================
     console.log(
-      "\n[Tests 22, 23] Verifying uninitialized account login block, first-time setup with Register Number, and faculty password reset..."
+      "\n[Tests 22, 23] Verifying direct login with pre-stored database password and faculty password reset..."
     );
 
-    // Case C student (testRoll3) currently has SETUP_REQUIRED_SENTINEL
-    let uninitBlockedWithSetupCode = false;
-    try {
-      await axios.post(`${BASE_URL}/login`, {
-        loginType: "student",
-        rollNumber: testRoll3,
-        password: "AnyAttemptedPassword123",
-      });
-    } catch (err: any) {
-      if (
-        err.response?.status === 403 &&
-        err.response?.data?.requiresPasswordSetup === true
-      ) {
-        uninitBlockedWithSetupCode = true;
-      }
-    }
-    assert(
-      uninitBlockedWithSetupCode,
-      "Uninitialized account must return 403 requiresPasswordSetup: true on login attempt (Test 22)"
-    );
-
-    // Wrong register_number must be rejected during initialization
-    let wrongRegRejected = false;
-    try {
-      await axios.post(`${BASE_URL}/auth/initialize-password`, {
-        rollNumber: testRoll3,
-        registerNumber: 999999999999,
-        newPassword: "FirstTimeSetupPass!99",
-        confirmPassword: "FirstTimeSetupPass!99",
-      });
-    } catch (err: any) {
-      if (err.response?.status === 401) wrongRegRejected = true;
-    }
-    assert(
-      wrongRegRejected,
-      "First-time password setup with wrong Register Number must be rejected with 401 (Test 22)"
-    );
-
-    // Correct register_number initializes the password and returns a valid token
-    const initRes = await axios.post(`${BASE_URL}/auth/initialize-password`, {
+    // Student with pre-stored database password can log in directly without first-time setup
+    const directStoredLogin = await axios.post(`${BASE_URL}/login`, {
+      loginType: "student",
       rollNumber: testRoll3,
-      registerNumber: 211424999003,
-      newPassword: "FirstTimeSetupPass!99",
-      confirmPassword: "FirstTimeSetupPass!99",
+      password: "18-04-2007",
     });
     assert(
-      initRes.status === 200 &&
-        initRes.data.success === true &&
-        initRes.data.token,
-      "First-time password setup with valid Roll Number + Register Number must succeed (Test 22)"
-    );
-
-    // Attempting to re-initialize an already-initialized account without admin reset must be blocked with 403
-    let reinitBlocked = false;
-    try {
-      await axios.post(`${BASE_URL}/auth/initialize-password`, {
-        rollNumber: testRoll3,
-        registerNumber: 211424999003,
-        newPassword: "HijackAttemptPass!00",
-        confirmPassword: "HijackAttemptPass!00",
-      });
-    } catch (err: any) {
-      if (err.response?.status === 403) reinitBlocked = true;
-    }
-    assert(
-      reinitBlocked,
-      "Re-initializing an already-initialized account must be blocked with 403 (Test 22)"
+      directStoredLogin.status === 200 &&
+        directStoredLogin.data.success === true &&
+        directStoredLogin.data.token,
+      "Student with password already stored in database must be able to log in directly without first-time setup (Test 22)"
     );
 
     // Test 23: Faculty/Admin resets student password directly

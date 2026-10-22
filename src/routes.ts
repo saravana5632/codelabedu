@@ -2,8 +2,6 @@ import { Express } from "express";
 import {
   login,
   getMe,
-  initializeStudentPassword,
-  changeStudentPassword,
   logout,
 } from "./controllers/auth.js";
 import {
@@ -59,27 +57,11 @@ import { authMiddleware, roleMiddleware } from "./middleware/authMiddleware.js";
 
 export function setupRoutes(app: Express) {
   // ==========================================
-  // Authentication & Password Lifecycle Routes
+  // Authentication Routes
   // ==========================================
   app.post("/api/login", login);
   app.post("/api/auth/login", login);
   app.post("/api/student/login", login);
-
-  app.post("/api/auth/initialize-password", initializeStudentPassword);
-  app.post("/api/student/initialize-password", initializeStudentPassword);
-
-  app.post(
-    "/api/auth/change-password",
-    authMiddleware,
-    roleMiddleware("student"),
-    changeStudentPassword
-  );
-  app.post(
-    "/api/student/change-password",
-    authMiddleware,
-    roleMiddleware("student"),
-    changeStudentPassword
-  );
 
   app.post("/api/logout", authMiddleware, logout);
   app.post("/api/auth/logout", authMiddleware, logout);
