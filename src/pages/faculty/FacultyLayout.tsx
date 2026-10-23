@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
-import { LayoutDashboard, FileText, BarChart3, Users, FileBox, LogOut, Clock, Code } from 'lucide-react';
+import { LayoutDashboard, FileText, BarChart3, Users, FileBox, LogOut, Clock, Code, ShieldAlert } from 'lucide-react';
 
 export default function FacultyLayout() {
   const location = useLocation();
@@ -15,6 +15,7 @@ export default function FacultyLayout() {
     { name: "Tests", path: "/faculty/tests", icon: FileText },
     { name: "Questions", path: "/faculty/questions", icon: Code },
     { name: "Assessment Timer", path: "/faculty/timer", icon: Clock },
+    { name: "Malpractice Control", path: "/faculty/malpractice", icon: ShieldAlert },
     { name: "Analytics", path: "/faculty/analytics", icon: BarChart3 },
     { name: "Students", path: "/faculty/students", icon: Users },
     { name: "Reports", path: "/faculty/reports", icon: FileBox },

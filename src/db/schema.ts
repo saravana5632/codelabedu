@@ -190,3 +190,71 @@ export const assessmentSessions = sqliteTable("assessment_sessions", {
   drafts: text("drafts", { mode: "json" }),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const malpracticeSettings = sqliteTable("malpractice_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  masterEnabled: integer("master_enabled", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  disableCopy: integer("disable_copy", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  disableCut: integer("disable_cut", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  disablePaste: integer("disable_paste", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  disableRightClick: integer("disable_right_click", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  detectDevtoolsShortcuts: integer("detect_devtools_shortcuts", {
+    mode: "boolean",
+  })
+    .default(true)
+    .notNull(),
+  detectTabSwitch: integer("detect_tab_switch", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  detectWindowFocus: integer("detect_window_focus", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  showStudentWarnings: integer("show_student_warnings", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  enableViolationLogging: integer("enable_violation_logging", {
+    mode: "boolean",
+  })
+    .default(true)
+    .notNull(),
+  violationThreshold: integer("violation_threshold").default(3).notNull(),
+  updatedAt: text("updated_at").notNull(),
+  updatedBy: integer("updated_by").references(() => faculty.id),
+  updatedByName: text("updated_by_name"),
+});
+
+export const malpracticeEvents = sqliteTable("malpractice_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  studentId: integer("student_id")
+    .references(() => students.id)
+    .notNull(),
+  assessmentId: integer("assessment_id")
+    .references(() => tests.id)
+    .notNull(),
+  sessionId: integer("session_id")
+    .references(() => assessmentSessions.id)
+    .notNull(),
+  eventType: text("event_type").notNull(),
+  serverTimestamp: text("server_timestamp").notNull(),
+  relevantConfiguration: text("relevant_configuration", {
+    mode: "json",
+  }).notNull(),
+  reviewStatus: text("review_status", {
+    enum: ["pending", "reviewed", "dismissed", "flagged"],
+  })
+    .default("pending")
+    .notNull(),
+  reviewedBy: integer("reviewed_by").references(() => faculty.id),
+  reviewedAt: text("reviewed_at"),
+  notes: text("notes"),
+});

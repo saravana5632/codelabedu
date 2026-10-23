@@ -91,12 +91,88 @@ export default function CodingPage() {
     )}`;
   };
 
+  const editorRef = useRef<any>(null);
+  const warningTimerRef = useRef<number | null>(null);
+  const lastReportedByTypeRef = useRef<Record<string, number>>({});
+
+  const [effectiveMalpractice, setEffectiveMalpractice] = useState({
+    masterEnabled: true,
+    disableCopy: true,
+    disableCut: true,
+    disablePaste: true,
+    disableRightClick: true,
+    detectDevtoolsShortcuts: true,
+    detectTabSwitch: true,
+    detectWindowFocus: true,
+    showStudentWarnings: true,
+    enableViolationLogging: true,
+    violationThreshold: 3,
+  });
+  const effectiveMalpracticeRef = useRef(effectiveMalpractice);
+  const [malpracticeWarningBanner, setMalpracticeWarningBanner] =
+    useState<string>("");
+  const [serverViolationCount, setServerViolationCount] = useState<number>(0);
+
+  const applyMalpracticeConfigFromServer = (payload: any) => {
+    if (!payload) return;
+    const rawEff =
+      payload.effectiveMalpracticeSettings ||
+      payload.effectiveSettings ||
+      payload.malpracticeSettings?.effective ||
+      payload.effective ||
+      payload.settings ||
+      payload;
+
+    if (!rawEff || typeof rawEff.masterEnabled !== "boolean") return;
+
+    const masterOn = Boolean(rawEff.masterEnabled);
+    const normalized = {
+      masterEnabled: masterOn,
+      disableCopy: masterOn ? Boolean(rawEff.disableCopy) : false,
+      disableCut: masterOn ? Boolean(rawEff.disableCut) : false,
+      disablePaste: masterOn ? Boolean(rawEff.disablePaste) : false,
+      disableRightClick: masterOn ? Boolean(rawEff.disableRightClick) : false,
+      detectDevtoolsShortcuts: masterOn
+        ? Boolean(rawEff.detectDevtoolsShortcuts)
+        : false,
+      detectTabSwitch: masterOn ? Boolean(rawEff.detectTabSwitch) : false,
+      detectWindowFocus: masterOn ? Boolean(rawEff.detectWindowFocus) : false,
+      showStudentWarnings: masterOn
+        ? Boolean(rawEff.showStudentWarnings)
+        : false,
+      enableViolationLogging: masterOn
+        ? Boolean(rawEff.enableViolationLogging)
+        : false,
+      violationThreshold: Number(rawEff.violationThreshold) || 3,
+    };
+
+    effectiveMalpracticeRef.current = normalized;
+    setEffectiveMalpractice(normalized);
+
+    if (!normalized.masterEnabled || !normalized.showStudentWarnings) {
+      setMalpracticeWarningBanner("");
+    }
+
+    if (editorRef.current) {
+      editorRef.current.updateOptions({
+        contextmenu: !(normalized.masterEnabled && normalized.disableRightClick),
+      });
+    }
+
+    if (typeof payload.serverViolationCount === "number") {
+      setServerViolationCount(payload.serverViolationCount);
+    }
+  };
+
   const applyServerTiming = (sessionData: {
     sessionId?: number;
     timerEnabled?: boolean;
     deadlineAt?: string | null;
     serverTime?: string;
     status?: string;
+    effectiveMalpracticeSettings?: any;
+    malpracticeSettings?: any;
+    serverViolationCount?: number;
   }) => {
     if (sessionData.sessionId) {
       setSessionId(sessionData.sessionId);
@@ -105,6 +181,13 @@ export default function CodingPage() {
         `assessmentSessionId_${user.id}_${testId}`,
         String(sessionData.sessionId)
       );
+    }
+
+    if (
+      sessionData.effectiveMalpracticeSettings ||
+      sessionData.malpracticeSettings
+    ) {
+      applyMalpracticeConfigFromServer(sessionData);
     }
 
     if (sessionData.serverTime) {
@@ -169,6 +252,12 @@ export default function CodingPage() {
       });
       if (res.data?.savedAt) {
         setLastDraftSavedAt(res.data.savedAt);
+      }
+      if (
+        res.data?.effectiveMalpracticeSettings ||
+        res.data?.malpracticeSettings
+      ) {
+        applyMalpracticeConfigFromServer(res.data);
       }
     } catch (err: any) {
       if (err.response?.status === 403 && err.response?.data?.expired) {
@@ -322,7 +411,7 @@ export default function CodingPage() {
     return () => window.clearInterval(intervalId);
   }, [timerEnabled, deadlineAt]);
 
-  // Periodic lightweight server synchronization (every 30s and on window focus)
+  // Periodic lightweight server synchronization (every 15s and on window focus/online)
   useEffect(() => {
     if (!sessionId || isExpired) return;
 
@@ -346,14 +435,66 @@ export default function CodingPage() {
       }
     };
 
-    const syncInterval = window.setInterval(syncWithServer, 30000);
+    const syncInterval = window.setInterval(syncWithServer, 15000);
     window.addEventListener("online", syncWithServer);
+    window.addEventListener("focus", syncWithServer);
 
     return () => {
       window.clearInterval(syncInterval);
       window.removeEventListener("online", syncWithServer);
+      window.removeEventListener("focus", syncWithServer);
     };
   }, [sessionId, isExpired]);
+
+  // Synchronize malpractice settings on mount and via cross-tab BroadcastChannel/storage events
+  useEffect(() => {
+    let isMounted = true;
+    const loadSettings = async () => {
+      try {
+        const res = await api.get("/student/malpractice/settings");
+        if (isMounted && res.data) {
+          applyMalpracticeConfigFromServer(res.data);
+        }
+      } catch {
+        // Ignore transient errors
+      }
+    };
+    loadSettings();
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === "codelab_malpractice_sync" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          applyMalpracticeConfigFromServer(parsed);
+        } catch {
+          loadSettings();
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageSync);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        channel = new BroadcastChannel("codelab_malpractice_config");
+        channel.onmessage = (event) => {
+          if (event.data) {
+            applyMalpracticeConfigFromServer(event.data);
+          }
+        };
+      } catch {
+        channel = null;
+      }
+    }
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener("storage", handleStorageSync);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, []);
 
   const timerDisplay = !timerEnabled
     ? "Untimed"
@@ -361,21 +502,14 @@ export default function CodingPage() {
     ? formatTime(timeLeft)
     : "--:--";
 
-  // Fullscreen and Malpractice State
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [malpracticeCount, setMalpracticeCount] = useState(() => {
-    return parseInt(
-      sessionStorage.getItem(`malpractice_test_${user.id}_${testId}`) || "0",
-      10
-    );
-  });
-  const [showWarning, setShowWarning] = useState(false);
+  // Malpractice Lockout State
   const [isLockedOut, setIsLockedOut] = useState(false);
 
   const codesRef = useRef(codes);
   const languagesRef = useRef(languages);
   const isLockedOutRef = useRef(isLockedOut);
   const questionsRef = useRef(questions);
+  const activeQIndexRef = useRef(activeQIndex);
 
   useEffect(() => {
     codesRef.current = codes;
@@ -389,6 +523,9 @@ export default function CodingPage() {
   useEffect(() => {
     questionsRef.current = questions;
   }, [questions]);
+  useEffect(() => {
+    activeQIndexRef.current = activeQIndex;
+  }, [activeQIndex]);
 
   useEffect(() => {
     fetchTestAndQuestions();
@@ -396,97 +533,280 @@ export default function CodingPage() {
       if (draftTimeoutRef.current) {
         window.clearTimeout(draftTimeoutRef.current);
       }
+      if (warningTimerRef.current) {
+        window.clearTimeout(warningTimerRef.current);
+      }
     };
   }, [testId]);
 
-  // Malpractice Detection Listeners
+  const showNonDisruptiveWarning = (message: string) => {
+    const eff = effectiveMalpracticeRef.current;
+    if (!eff.masterEnabled || !eff.showStudentWarnings) return;
+
+    setMalpracticeWarningBanner(message);
+    if (warningTimerRef.current) {
+      window.clearTimeout(warningTimerRef.current);
+    }
+    warningTimerRef.current = window.setTimeout(() => {
+      setMalpracticeWarningBanner("");
+    }, 5000);
+  };
+
+  const triggerMalpracticeAction = (
+    eventType:
+      | "copy_attempt"
+      | "cut_attempt"
+      | "paste_attempt"
+      | "context_menu_attempt"
+      | "devtools_shortcut_attempt"
+      | "tab_visibility_changed"
+      | "window_focus_lost",
+    warningMessage: string,
+    targetArea = "workspace",
+    shortcut?: string
+  ) => {
+    if (isLockedOutRef.current || timerSubmittingRef.current) return;
+    const eff = effectiveMalpracticeRef.current;
+    if (!eff.masterEnabled) return;
+
+    // Client-side debounce to prevent duplicate warnings/logs from a single physical action
+    const nowMs = Date.now();
+    const debounceWindowMs =
+      eventType === "tab_visibility_changed" ||
+      eventType === "window_focus_lost"
+        ? 1200
+        : 500;
+    const lastMs = lastReportedByTypeRef.current[eventType] || 0;
+    if (nowMs - lastMs < debounceWindowMs) {
+      return;
+    }
+    lastReportedByTypeRef.current[eventType] = nowMs;
+
+    if (eff.showStudentWarnings) {
+      showNonDisruptiveWarning(warningMessage);
+    }
+
+    const activeSessId = sessionIdRef.current;
+    if (eff.enableViolationLogging && activeSessId) {
+      const currentQ = questionsRef.current[activeQIndexRef.current];
+      api
+        .post(`/assessment-sessions/${activeSessId}/malpractice-events`, {
+          eventType,
+          targetArea,
+          ...(shortcut ? { shortcut } : {}),
+          ...(currentQ?.id ? { questionId: currentQ.id } : {}),
+        })
+        .then((res) => {
+          if (res.data?.effectiveSettings) {
+            applyMalpracticeConfigFromServer(res.data);
+          }
+          if (res.data?.shouldAutoSubmit && !isLockedOutRef.current) {
+            handleAutoSubmitMalpractice();
+          }
+        })
+        .catch(() => {
+          // Never freeze or disrupt the editor if logging fails temporarily
+        });
+    }
+  };
+
+  // Admin-Controlled Anti-Malpractice Listeners (Keyboard, Clipboard, ContextMenu, Visibility, Focus)
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        setIsFullscreen(false);
-        recordMalpractice("Exited fullscreen mode.");
-      } else {
-        setIsFullscreen(true);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled) return;
+
+      const keyLower = (e.key || "").toLowerCase();
+      const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+      // 1. Developer Tools Shortcut Deterrence
+      // F12, Ctrl+Shift+I/J/C, Ctrl+U, macOS Cmd+Option+I/J/C
+      if (eff.detectDevtoolsShortcuts) {
+        const isF12 = e.key === "F12";
+        const isWinLinuxDevTools =
+          e.ctrlKey &&
+          e.shiftKey &&
+          !e.metaKey &&
+          (keyLower === "i" || keyLower === "j" || keyLower === "c");
+        const isViewSource =
+          e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && keyLower === "u";
+        const isMacDevTools =
+          e.metaKey &&
+          e.altKey &&
+          (keyLower === "i" || keyLower === "j" || keyLower === "c");
+
+        if (isF12 || isWinLinuxDevTools || isViewSource || isMacDevTools) {
+          e.preventDefault();
+          e.stopPropagation();
+          const shortcutLabel = isF12
+            ? "F12"
+            : isViewSource
+            ? "Ctrl+U"
+            : isMacDevTools
+            ? `Cmd+Option+${keyLower.toUpperCase()}`
+            : `Ctrl+Shift+${keyLower.toUpperCase()}`;
+          triggerMalpracticeAction(
+            "devtools_shortcut_attempt",
+            "A restricted keyboard shortcut was detected.",
+            "workspace",
+            shortcutLabel
+          );
+          return;
+        }
       }
+
+      // 2. Copy Shortcut Restriction (Ctrl+C, Cmd+C)
+      if (eff.disableCopy) {
+        const isCopyKey =
+          ctrlOrCmd && !e.altKey && !e.shiftKey && keyLower === "c";
+        if (isCopyKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          triggerMalpracticeAction(
+            "copy_attempt",
+            "Copying is disabled during this assessment.",
+            "workspace",
+            e.metaKey ? "Cmd+C" : "Ctrl+C"
+          );
+          return;
+        }
+      }
+
+      // 3. Cut Shortcut Restriction (Ctrl+X, Cmd+X)
+      if (eff.disableCut) {
+        const isCutKey =
+          ctrlOrCmd && !e.altKey && !e.shiftKey && keyLower === "x";
+        if (isCutKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          triggerMalpracticeAction(
+            "cut_attempt",
+            "Cutting is disabled during this assessment.",
+            "workspace",
+            e.metaKey ? "Cmd+X" : "Ctrl+X"
+          );
+          return;
+        }
+      }
+
+      // 4. Paste Shortcut Restriction (Ctrl+V, Ctrl+Shift+V, Shift+Insert, Cmd+V, Cmd+Shift+V)
+      if (eff.disablePaste) {
+        const isPasteKey =
+          (ctrlOrCmd && !e.altKey && keyLower === "v") ||
+          (e.shiftKey && !ctrlOrCmd && !e.altKey && e.key === "Insert");
+        if (isPasteKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const label =
+            e.key === "Insert"
+              ? "Shift+Insert"
+              : e.metaKey
+              ? e.shiftKey
+                ? "Cmd+Shift+V"
+                : "Cmd+V"
+              : e.shiftKey
+              ? "Ctrl+Shift+V"
+              : "Ctrl+V";
+          triggerMalpracticeAction(
+            "paste_attempt",
+            "Pasting is disabled during this assessment.",
+            "workspace",
+            label
+          );
+          return;
+        }
+      }
+    };
+
+    const handleCopy = (e: ClipboardEvent) => {
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled || !eff.disableCopy) return;
+      e.preventDefault();
+      e.stopPropagation();
+      triggerMalpracticeAction(
+        "copy_attempt",
+        "Copying is disabled during this assessment.",
+        "clipboard"
+      );
+    };
+
+    const handleCut = (e: ClipboardEvent) => {
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled || !eff.disableCut) return;
+      e.preventDefault();
+      e.stopPropagation();
+      triggerMalpracticeAction(
+        "cut_attempt",
+        "Cutting is disabled during this assessment.",
+        "clipboard"
+      );
+    };
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled || !eff.disablePaste) return;
+      e.preventDefault();
+      e.stopPropagation();
+      triggerMalpracticeAction(
+        "paste_attempt",
+        "Pasting is disabled during this assessment.",
+        "clipboard"
+      );
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled || !eff.disableRightClick) return;
+      e.preventDefault();
+      e.stopPropagation();
+      triggerMalpracticeAction(
+        "context_menu_attempt",
+        "Right-click is restricted during this assessment.",
+        "workspace"
+      );
     };
 
     const handleVisibilityChange = () => {
-      if (document.hidden && document.fullscreenElement) {
-        recordMalpractice("Switched tab or window.");
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled || !eff.detectTabSwitch) return;
+      if (document.visibilityState === "hidden" || document.hidden) {
+        triggerMalpracticeAction(
+          "tab_visibility_changed",
+          "Tab switching was detected during this assessment.",
+          "browser_tab"
+        );
       }
     };
 
-    const handleBlur = () => {
-      if (document.fullscreenElement) {
-        recordMalpractice("Lost focus on the test window.");
-      }
+    const handleWindowBlur = () => {
+      const eff = effectiveMalpracticeRef.current;
+      if (!eff.masterEnabled || !eff.detectWindowFocus) return;
+      if (document.visibilityState === "hidden" || document.hidden) return;
+      triggerMalpracticeAction(
+        "window_focus_lost",
+        "Window focus loss was detected during this assessment.",
+        "browser_window"
+      );
     };
 
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    window.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("copy", handleCopy, true);
+    document.addEventListener("cut", handleCut, true);
+    document.addEventListener("paste", handlePaste, true);
+    document.addEventListener("contextmenu", handleContextMenu, true);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("blur", handleBlur);
-
-    if (document.fullscreenElement) {
-      setIsFullscreen(true);
-    }
-
-    const blockClipboard = (e: ClipboardEvent) => {
-      e.preventDefault();
-      recordMalpractice(`Attempted ${e.type} outside the editor.`);
-    };
-    const blockContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-    };
-
-    document.addEventListener("copy", blockClipboard, true);
-    document.addEventListener("cut", blockClipboard, true);
-    document.addEventListener("paste", blockClipboard, true);
-    document.addEventListener("contextmenu", blockContextMenu, true);
+    window.addEventListener("blur", handleWindowBlur);
 
     return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("copy", handleCopy, true);
+      document.removeEventListener("cut", handleCut, true);
+      document.removeEventListener("paste", handlePaste, true);
+      document.removeEventListener("contextmenu", handleContextMenu, true);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("blur", handleBlur);
-      document.removeEventListener("copy", blockClipboard, true);
-      document.removeEventListener("cut", blockClipboard, true);
-      document.removeEventListener("paste", blockClipboard, true);
-      document.removeEventListener("contextmenu", blockContextMenu, true);
+      window.removeEventListener("blur", handleWindowBlur);
     };
   }, [testId]);
-
-  const recordMalpractice = (_reason: string) => {
-    if (isLockedOutRef.current || timerSubmittingRef.current) return;
-
-    setMalpracticeCount((prev) => {
-      const nextCount = prev + 1;
-      sessionStorage.setItem(
-        `malpractice_test_${user.id}_${testId}`,
-        nextCount.toString()
-      );
-      return nextCount;
-    });
-  };
-
-  useEffect(() => {
-    if (malpracticeCount > 0) {
-      if (malpracticeCount > 3 && !isLockedOutRef.current) {
-        handleAutoSubmitMalpractice();
-      } else if (malpracticeCount <= 3 && !isLockedOutRef.current) {
-        setShowWarning(true);
-      }
-    }
-  }, [malpracticeCount]);
-
-  const requestFullscreen = () => {
-    const el = document.documentElement;
-    if (el.requestFullscreen) {
-      el.requestFullscreen().catch(() => {
-        setIsFullscreen(true);
-      });
-    } else {
-      setIsFullscreen(true);
-    }
-  };
 
   const handleAutoSubmitMalpractice = async () => {
     setIsLockedOut(true);
@@ -816,9 +1136,140 @@ export default function CodingPage() {
     }
   };
 
-  const handleEditorDidMount = (editorInstance: any) => {
+  const handleEditorDidMount = (editorInstance: any, monacoInstance?: any) => {
+    editorRef.current = editorInstance;
     editorInstance.focus();
-    editorInstance.updateOptions({ contextmenu: false });
+
+    const eff = effectiveMalpracticeRef.current;
+    editorInstance.updateOptions({
+      contextmenu: !(eff.masterEnabled && eff.disableRightClick),
+    });
+
+    // Intercept Monaco Editor keyboard shortcuts according to live admin configuration
+    editorInstance.onKeyDown((e: any) => {
+      const currentEff = effectiveMalpracticeRef.current;
+      if (!currentEff.masterEnabled) return;
+
+      const browserEv: KeyboardEvent | undefined = e.browserEvent;
+      const keyLower = (browserEv?.key || "").toLowerCase();
+      const ctrlOrCmd = Boolean(e.ctrlKey || e.metaKey || browserEv?.ctrlKey || browserEv?.metaKey);
+      const shift = Boolean(e.shiftKey || browserEv?.shiftKey);
+      const alt = Boolean(e.altKey || browserEv?.altKey);
+
+      if (currentEff.detectDevtoolsShortcuts) {
+        const isF12 = browserEv?.key === "F12";
+        const isWinDev =
+          Boolean(e.ctrlKey || browserEv?.ctrlKey) &&
+          shift &&
+          !e.metaKey &&
+          (keyLower === "i" || keyLower === "j" || keyLower === "c");
+        const isCtrlU =
+          Boolean(e.ctrlKey || browserEv?.ctrlKey) &&
+          !shift &&
+          !alt &&
+          !e.metaKey &&
+          keyLower === "u";
+        const isMacDev =
+          Boolean(e.metaKey || browserEv?.metaKey) &&
+          alt &&
+          (keyLower === "i" || keyLower === "j" || keyLower === "c");
+
+        if (isF12 || isWinDev || isCtrlU || isMacDev) {
+          e.preventDefault();
+          e.stopPropagation();
+          triggerMalpracticeAction(
+            "devtools_shortcut_attempt",
+            "A restricted keyboard shortcut was detected.",
+            "editor"
+          );
+          return;
+        }
+      }
+
+      if (currentEff.disableCopy && ctrlOrCmd && !alt && !shift && keyLower === "c") {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerMalpracticeAction(
+          "copy_attempt",
+          "Copying is disabled during this assessment.",
+          "editor",
+          "Ctrl+C"
+        );
+        return;
+      }
+
+      if (currentEff.disableCut && ctrlOrCmd && !alt && !shift && keyLower === "x") {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerMalpracticeAction(
+          "cut_attempt",
+          "Cutting is disabled during this assessment.",
+          "editor",
+          "Ctrl+X"
+        );
+        return;
+      }
+
+      const isShiftInsert =
+        shift &&
+        !ctrlOrCmd &&
+        !alt &&
+        (browserEv?.key === "Insert" ||
+          (monacoInstance && e.keyCode === monacoInstance.KeyCode?.Insert));
+
+      if (
+        currentEff.disablePaste &&
+        ((ctrlOrCmd && !alt && keyLower === "v") || isShiftInsert)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerMalpracticeAction(
+          "paste_attempt",
+          "Pasting is disabled during this assessment.",
+          "editor",
+          isShiftInsert ? "Shift+Insert" : "Ctrl+V"
+        );
+        return;
+      }
+    });
+
+    // Override Monaco internal clipboard commands so command palette / programmatic triggers respect settings
+    const originalTrigger = editorInstance.trigger.bind(editorInstance);
+    editorInstance.trigger = (
+      source: string,
+      handlerId: string,
+      payload: any
+    ) => {
+      const currentEff = effectiveMalpracticeRef.current;
+      if (currentEff.masterEnabled) {
+        const hLower = String(handlerId || "").toLowerCase();
+        if (currentEff.disableCopy && hLower.includes("copy")) {
+          triggerMalpracticeAction(
+            "copy_attempt",
+            "Copying is disabled during this assessment.",
+            "editor"
+          );
+          return;
+        }
+        if (currentEff.disableCut && hLower.includes("cut")) {
+          triggerMalpracticeAction(
+            "cut_attempt",
+            "Cutting is disabled during this assessment.",
+            "editor"
+          );
+          return;
+        }
+        if (currentEff.disablePaste && hLower.includes("paste")) {
+          triggerMalpracticeAction(
+            "paste_attempt",
+            "Pasting is disabled during this assessment.",
+            "editor"
+          );
+          return;
+        }
+      }
+      return originalTrigger(source, handlerId, payload);
+    };
   };
 
   if (isExpired) {
@@ -894,8 +1345,8 @@ export default function CodingPage() {
           </h2>
           <p className="text-gray-600 mb-6">
             Your test was automatically submitted because you exceeded the
-            allowed number of malpractice violations (tab switching, exiting
-            fullscreen, etc.).
+            allowed number of malpractice violations ({serverViolationCount} /{" "}
+            {effectiveMalpractice.violationThreshold}).
           </p>
           <button
             onClick={() => navigate("/student")}
@@ -908,67 +1359,41 @@ export default function CodingPage() {
     );
   }
 
-  if (!isFullscreen) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-gray-50 p-6 z-50">
-        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Fullscreen Required
-          </h2>
-          <p className="text-gray-600 mb-4 text-sm">
-            This programming test must be taken in fullscreen mode. Any attempt
-            to exit fullscreen, switch tabs, or lose focus will be recorded.
-          </p>
-          {timerEnabled && timeLeft !== null && (
-            <p className="text-xs font-mono tabular-nums text-blue-700 font-semibold mb-6">
-              Time Remaining: {timerDisplay}
-            </p>
-          )}
-          <button
-            onClick={requestFullscreen}
-            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm"
-          >
-            Enter Fullscreen & Continue
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const isOneMinuteWarning =
     timerEnabled && timeLeft !== null && timeLeft > 0 && timeLeft <= 60;
   const isFiveMinuteWarning =
     timerEnabled && timeLeft !== null && timeLeft > 60 && timeLeft <= 300;
 
   return (
-    <div className="h-screen flex flex-col bg-white text-slate-800 font-sans overflow-hidden">
-      {/* Malpractice Warning Modal */}
-      {showWarning && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-            <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
-            <h3 className="text-lg font-bold text-gray-900 mb-2">
-              Malpractice Warning
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              You have switched tabs, exited fullscreen, or lost focus. This is
-              a violation of test rules.
-            </p>
-            <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md font-semibold text-sm mb-4">
-              Warning {malpracticeCount} / 3
+    <div
+      className="h-screen flex flex-col bg-white text-slate-800 font-sans overflow-hidden"
+      data-testid="assessment-workspace"
+    >
+      {/* Non-Disruptive Student Malpractice Warning Banner (Does Not Steal Editor Focus) */}
+      {effectiveMalpractice.masterEnabled &&
+        effectiveMalpractice.showStudentWarnings &&
+        malpracticeWarningBanner && (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="student-malpractice-warning"
+            className="bg-amber-50 border-b border-amber-300 text-amber-900 px-6 py-2 text-xs font-semibold flex items-center justify-between shrink-0"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{malpracticeWarningBanner}</span>
             </div>
             <button
-              onClick={() => {
-                setShowWarning(false);
-                requestFullscreen();
-              }}
-              className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setMalpracticeWarningBanner("")}
+              className="text-amber-800 hover:text-amber-950 font-bold ml-4"
             >
-              Acknowledge & Resume
+              Dismiss
             </button>
           </div>
-        </div>
-      )}
+        )}
 
       {/* 1-Minute Prominent Warning Banner */}
       {isOneMinuteWarning && (
@@ -1226,6 +1651,10 @@ export default function CodingPage() {
                 scrollBeyondLastLine: false,
                 roundedSelection: false,
                 readOnly: isExpired,
+                contextmenu: !(
+                  effectiveMalpractice.masterEnabled &&
+                  effectiveMalpractice.disableRightClick
+                ),
               }}
             />
           </div>

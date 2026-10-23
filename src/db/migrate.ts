@@ -8,6 +8,7 @@ import {
   questions,
   questionTestCases,
   assessmentTimerConfigs,
+  malpracticeSettings,
 } from "./schema.js";
 import {
   FunctionConfig,
@@ -448,6 +449,52 @@ async function createAllTables() {
     CREATE INDEX IF NOT EXISTS idx_assessment_sessions_status_deadline
     ON assessment_sessions (status, timer_enabled, deadline_at)
   `);
+
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS malpractice_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      master_enabled INTEGER NOT NULL DEFAULT 1,
+      disable_copy INTEGER NOT NULL DEFAULT 1,
+      disable_cut INTEGER NOT NULL DEFAULT 1,
+      disable_paste INTEGER NOT NULL DEFAULT 1,
+      disable_right_click INTEGER NOT NULL DEFAULT 1,
+      detect_devtools_shortcuts INTEGER NOT NULL DEFAULT 1,
+      detect_tab_switch INTEGER NOT NULL DEFAULT 1,
+      detect_window_focus INTEGER NOT NULL DEFAULT 1,
+      show_student_warnings INTEGER NOT NULL DEFAULT 1,
+      enable_violation_logging INTEGER NOT NULL DEFAULT 1,
+      violation_threshold INTEGER NOT NULL DEFAULT 3,
+      updated_at TEXT NOT NULL,
+      updated_by INTEGER REFERENCES faculty(id),
+      updated_by_name TEXT
+    )
+  `);
+
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS malpractice_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id INTEGER NOT NULL REFERENCES students(id),
+      assessment_id INTEGER NOT NULL REFERENCES tests(id),
+      session_id INTEGER NOT NULL REFERENCES assessment_sessions(id),
+      event_type TEXT NOT NULL,
+      server_timestamp TEXT NOT NULL,
+      relevant_configuration TEXT NOT NULL,
+      review_status TEXT NOT NULL DEFAULT 'pending',
+      reviewed_by INTEGER REFERENCES faculty(id),
+      reviewed_at TEXT,
+      notes TEXT
+    )
+  `);
+
+  await db.run(sql`
+    CREATE INDEX IF NOT EXISTS idx_malpractice_events_session_type
+    ON malpractice_events (session_id, event_type, server_timestamp)
+  `);
+
+  await db.run(sql`
+    CREATE INDEX IF NOT EXISTS idx_malpractice_events_student_test
+    ON malpractice_events (student_id, assessment_id, server_timestamp)
+  `);
 }
 
 async function backfillSeededQuestionsLeetCodeData() {
@@ -844,6 +891,34 @@ async function seedDefaultDataIfNeeded() {
       faculty_id
     FROM tests
   `);
+
+  const existingMalpracticeSetting = await db
+    .select()
+    .from(malpracticeSettings)
+    .limit(1)
+    .get();
+  if (!existingMalpracticeSetting) {
+    await db
+      .insert(malpracticeSettings)
+      .values({
+        masterEnabled: true,
+        disableCopy: true,
+        disableCut: true,
+        disablePaste: true,
+        disableRightClick: true,
+        detectDevtoolsShortcuts: true,
+        detectTabSwitch: true,
+        detectWindowFocus: true,
+        showStudentWarnings: true,
+        enableViolationLogging: true,
+        violationThreshold: 3,
+        updatedAt: new Date().toISOString(),
+        updatedBy: fac?.id ?? null,
+        updatedByName: fac?.name ?? "Admin Faculty",
+      })
+      .execute();
+    console.log("[DATABASE] Seeded default anti-malpractice configuration.");
+  }
 }
 
 export async function ensureTimerTables() {

@@ -14,6 +14,7 @@ import QuestionManagement from "./pages/faculty/QuestionManagement.tsx";
 import TestAnalytics from "./pages/faculty/TestAnalytics.tsx";
 import StudentManagement from "./pages/faculty/StudentManagement.tsx";
 import AssessmentTimer from "./pages/faculty/AssessmentTimer.tsx";
+import MalpracticeControl from "./pages/faculty/MalpracticeControl.tsx";
 
 import TestSelectionPage from "./pages/TestSelectionPage.tsx";
 
@@ -31,6 +32,8 @@ export default function App() {
           <Route path="tests" element={<TestManagement />} />
           <Route path="questions" element={<QuestionManagement />} />
           <Route path="timer" element={<AssessmentTimer />} />
+          <Route path="malpractice" element={<MalpracticeControl />} />
+          <Route path="malpractice-control" element={<MalpracticeControl />} />
           <Route path="analytics/:id" element={<TestAnalytics />} />
           <Route path="analytics" element={<div className="p-4">Please select a test from the Tests tab to view analytics.</div>} />
           <Route path="students" element={<StudentManagement />} />

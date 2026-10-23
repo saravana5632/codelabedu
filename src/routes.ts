@@ -53,6 +53,14 @@ import {
   getAnalyticsDashboard,
   getTestAnalytics,
 } from "./controllers/analytics.js";
+import {
+  getAdminMalpracticeSettings,
+  updateAdminMalpracticeSettings,
+  getStudentMalpracticeSettings,
+  recordMalpracticeEvent,
+  getAdminMalpracticeEvents,
+  updateMalpracticeEventReview,
+} from "./controllers/malpractice.js";
 import { authMiddleware, roleMiddleware } from "./middleware/authMiddleware.js";
 
 export function setupRoutes(app: Express) {
@@ -153,6 +161,75 @@ export function setupRoutes(app: Express) {
     authMiddleware,
     roleMiddleware("student"),
     submitAssessmentSession
+  );
+
+  // ==========================================
+  // Anti-Malpractice Control & Event Routes
+  // ==========================================
+  app.get(
+    "/api/admin/malpractice/settings",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    getAdminMalpracticeSettings
+  );
+  app.get(
+    "/api/faculty/malpractice/settings",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    getAdminMalpracticeSettings
+  );
+  app.put(
+    "/api/admin/malpractice/settings",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    updateAdminMalpracticeSettings
+  );
+  app.put(
+    "/api/faculty/malpractice/settings",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    updateAdminMalpracticeSettings
+  );
+  app.get(
+    "/api/admin/malpractice/events",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    getAdminMalpracticeEvents
+  );
+  app.get(
+    "/api/faculty/malpractice/events",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    getAdminMalpracticeEvents
+  );
+  app.patch(
+    "/api/admin/malpractice/events/:id",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    updateMalpracticeEventReview
+  );
+  app.patch(
+    "/api/faculty/malpractice/events/:id",
+    authMiddleware,
+    roleMiddleware("faculty"),
+    updateMalpracticeEventReview
+  );
+  app.get(
+    "/api/student/malpractice/settings",
+    authMiddleware,
+    roleMiddleware("student"),
+    getStudentMalpracticeSettings
+  );
+  app.get(
+    "/api/malpractice/settings",
+    authMiddleware,
+    getStudentMalpracticeSettings
+  );
+  app.post(
+    "/api/assessment-sessions/:sessionId/malpractice-events",
+    authMiddleware,
+    roleMiddleware("student"),
+    recordMalpracticeEvent
   );
 
   // ==========================================

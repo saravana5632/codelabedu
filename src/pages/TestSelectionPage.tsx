@@ -36,15 +36,6 @@ export default function TestSelectionPage() {
         sessionStorage.removeItem(`malpractice_test_${user.id}_${testId}`);
       }
 
-      const malpracticeCount = parseInt(
-        sessionStorage.getItem(`malpractice_test_${user.id}_${testId}`) || "0",
-        10
-      );
-      if (malpracticeCount > 3) {
-        navigate("/student", { replace: true });
-        return;
-      }
-
       // If server already has an active session with selected questions, recover seamlessly
       if (
         res.data.activeSession &&

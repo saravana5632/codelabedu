@@ -16,6 +16,10 @@ import {
   evaluateQuestionCode,
   getQuestionTestCasesFromDb,
 } from "../lib/codeEvaluator.js";
+import {
+  getAuthoritativeMalpracticeConfig,
+  getServerSessionFocusViolationCount,
+} from "./malpractice.js";
 import axios from "axios";
 
 const JUDGE0_URL = process.env.JUDGE0_URL || "https://ce.judge0.com";
@@ -949,6 +953,12 @@ export const startOrRecoverAssessmentSession = async (
           ? JSON.parse(existingSession.drafts || "{}")
           : existingSession.drafts || {};
 
+      const malpracticeConfig = await getAuthoritativeMalpracticeConfig(false);
+      const serverViolationCount = await getServerSessionFocusViolationCount(
+        existingSession.id,
+        malpracticeConfig.effective
+      );
+
       return res.json({
         sessionId: existingSession.id,
         assessmentId: existingSession.assessmentId,
@@ -963,6 +973,9 @@ export const startOrRecoverAssessmentSession = async (
         selectedQuestions: currentSelectedQuestions,
         drafts,
         recovered: true,
+        malpracticeSettings: malpracticeConfig,
+        effectiveMalpracticeSettings: malpracticeConfig.effective,
+        serverViolationCount,
       });
     }
 
@@ -1001,6 +1014,7 @@ export const startOrRecoverAssessmentSession = async (
       .get();
 
     const remainingSeconds = computeRemainingSeconds(timerEnabled, deadlineAt);
+    const malpracticeConfig = await getAuthoritativeMalpracticeConfig(false);
 
     return res.status(201).json({
       sessionId: newSession.id,
@@ -1016,6 +1030,9 @@ export const startOrRecoverAssessmentSession = async (
       selectedQuestions: requestedQuestions || null,
       drafts: {},
       recovered: false,
+      malpracticeSettings: malpracticeConfig,
+      effectiveMalpracticeSettings: malpracticeConfig.effective,
+      serverViolationCount: 0,
     });
   } catch (error: any) {
     console.error("[START SESSION] Error:", error);
@@ -1098,6 +1115,12 @@ export const getSessionTimerStatus = async (
           )
         : 0;
 
+    const malpracticeConfig = await getAuthoritativeMalpracticeConfig(false);
+    const serverViolationCount = await getServerSessionFocusViolationCount(
+      session.id,
+      malpracticeConfig.effective
+    );
+
     return res.json({
       sessionId: session.id,
       assessmentId: session.assessmentId,
@@ -1110,6 +1133,9 @@ export const getSessionTimerStatus = async (
       submittedAt: session.submittedAt,
       serverTime: new Date().toISOString(),
       remainingSeconds,
+      malpracticeSettings: malpracticeConfig,
+      effectiveMalpracticeSettings: malpracticeConfig.effective,
+      serverViolationCount,
     });
   } catch (error: any) {
     console.error("[GET SESSION TIMER] Error:", error);
@@ -1217,6 +1243,8 @@ export const saveSessionDraft = async (req: AuthRequest, res: Response) => {
       .where(eq(assessmentSessions.id, session.id))
       .execute();
 
+    const malpracticeConfig = await getAuthoritativeMalpracticeConfig(false);
+
     return res.json({
       success: true,
       savedAt: nowIso,
@@ -1224,6 +1252,8 @@ export const saveSessionDraft = async (req: AuthRequest, res: Response) => {
         Boolean(session.timerEnabled),
         session.deadlineAt
       ),
+      malpracticeSettings: malpracticeConfig,
+      effectiveMalpracticeSettings: malpracticeConfig.effective,
     });
   } catch (error: any) {
     console.error("[SAVE DRAFT] Error:", error);
