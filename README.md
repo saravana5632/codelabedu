@@ -486,49 +486,6 @@ Drizzle ORM
 
 ---
 
-## Contributing
-
-1. Clone the repository.
-
-```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-```
-
-2. Create a feature branch.
-
-```bash
-git checkout -b feature/your-feature
-```
-
-3. Make your changes.
-
-4. Stage the changes.
-
-```bash
-git add .
-```
-
-5. Commit the changes.
-
-```bash
-git commit -m "Add your feature"
-```
-
-6. Push the branch.
-
-```bash
-git push origin feature/your-feature
-```
-
-7. Create a Pull Request.
-
----
-
-## License
-
-This project is developed for **educational and academic purposes**.
-
----
 
 ## CodeLabEdu
 
